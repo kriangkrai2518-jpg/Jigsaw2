@@ -21,7 +21,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Absolute Loop Fix)")
+st.title("🎬 Jigsaw Master (Safe Music Hub Restored)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -57,7 +57,7 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Absolute Sync Rendering...") as status:
+        with st.status("🎬 Final Sync Processing...") as status:
             try:
                 final_clips = []
                 for cfg in configs:
@@ -100,15 +100,15 @@ if files:
                         bt.flush()
                         os.fsync(bt.fileno())
                         
-                        # ✅ ปรับปรุงจุดนี้: โหลด -> Loop -> ตัด Duration ให้เป๊ะ
-                        bg_audio_raw = AudioFileClip(bt.name)
-                        bg_audio = bg_audio_raw.fx(vfx.loop, duration=full_video.duration).volumex(bgm_v).set_duration(full_video.duration)
+                        # ✅ แก้ไขจุดตาย: Force Loop โดยไม่จำกัด duration ในครั้งแรก
+                        # แล้วค่อยมาตัด set_duration ให้เท่ากับ full_video ทีหลัง
+                        bg_audio = AudioFileClip(bt.name).fx(vfx.loop).set_duration(full_video.duration).volumex(bgm_v)
                         
                         current_audio = [full_video.audio] if full_video.audio else []
                         current_audio.append(bg_audio)
                         full_video.audio = CompositeAudioClip(current_audio)
 
-                out = "final_absolute_sync.mp4"
+                out = "final_perfect_sync.mp4"
                 full_video.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, remove_temp=True)
                 st.session_state.v_path = out
                 status.update(label="✅ Success!", state="complete")
