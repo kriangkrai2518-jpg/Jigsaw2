@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import textwrap
 
-# --- หมวดที่ 1: ระบบมาตรฐาน (Locked 🔒) ---
+# --- หมวดที่ 1: ระบบพื้นฐาน ---
 st.set_page_config(page_title="Jigsaw Universal Assembler", layout="wide")
 
 def get_reading_duration(text):
@@ -39,23 +39,19 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Structure Fixed)")
+st.title("🎬 Jigsaw Master (Sealed Stable Engine)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
     uploaded_files = st.file_uploader("Add Images/MP4", type=['jpg','png','jpeg','mp4'], accept_multiple_files=True)
-    global_bgm = st.file_uploader("Upload BGM (Universal)", type=["mp3","wav","m4a","mp4"])
+    global_bgm = st.file_uploader("Upload BGM", type=["mp3","wav","m4a","mp4"])
 
 with col2:
     st.header("🖥️ Terminal")
     bgm_volume = st.slider("BGM Volume:", 0.0, 1.0, 0.15, 0.05)
     voice_volume = st.slider("Voiceover Volume:", 0.0, 1.0, 0.90, 0.05)
-    st.markdown("### 🛡️ Safe Music Hub")
-    m_col1, m_col2 = st.columns(2)
-    with m_col1: st.link_button("🎵 FB Sound", "https://www.facebook.com/sound/collection/")
-    with m_col2: st.link_button("📺 YT Library", "https://www.youtube.com/audiolibrary")
 
 st.divider()
 
@@ -64,7 +60,7 @@ scene_configs = []
 if uploaded_files:
     sorted_files = sorted(uploaded_files, key=lambda x: x.name)
     for i, file in enumerate(sorted_files):
-        with st.expander(f"🎤 Scene {i+1}: {file.name}", expanded=True):
+        with st.expander(f"🎤 Scene {i+1}", expanded=True):
             sc_col1, sc_col2 = st.columns([2, 1])
             with sc_col1:
                 cap = st.text_area(f"Subtitle:", key=f"cap_{i}")
@@ -74,7 +70,7 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Processing Rendering...") as status:
+        with st.status("🎬 Rendering Final Output...") as status:
             try:
                 final_clips = []
                 TARGET_FPS = 24 
@@ -99,9 +95,55 @@ if uploaded_files:
                         combined = Image.alpha_composite(pil_base, pil_sub)
                         clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"]).set_fps(TARGET_FPS)
 
+                    # ✅ Sealed Voiceover Block (Fixed Line 107 Area)
                     if config["voice"]:
                         try:
                             v_suffix = os.path.splitext(config["voice"].name)[1].lower()
                             with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
                                 v_temp.write(config["voice"].getvalue())
-                                v_
+                                v_audio = AudioFileClip(v_temp.name) if v_suffix != ".mp4" else VideoFileClip(v_temp.name).audio
+                                if v_audio:
+                                    v_audio = v_audio.volumex(voice_volume).set_duration(clip.duration)
+                                    clip = clip.set_audio(v_audio)
+                        except Exception as ve:
+                            st.warning(f"⚠️ Scene {i+1} Audio Skipped: {str(ve)}")
+                    
+                    final_clips.append(clip)
+
+                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
+                
+                # ✅ Sealed Global BGM Block
+                if global_bgm:
+                    try:
+                        bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=bg_suffix) as bg_temp:
+                            bg_temp.write(global_bgm.getvalue())
+                            bg_audio = AudioFileClip(bg_temp.name) if bg_suffix != ".mp4" else VideoFileClip(bg_temp.name).audio
+                            bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
+                            
+                            audio_list = [bg_audio]
+                            if full_video.audio is not None:
+                                audio_list.append(full_video.audio)
+                            full_video = full_video.set_audio(CompositeAudioClip(audio_list))
+                    except Exception as bge:
+                        st.warning(f"⚠️ BGM Skipped: {str(bge)}")
+
+                out_file = "jigsaw_sealed.mp4"
+                full_video.write_videofile(out_file, fps=TARGET_FPS, codec="libx264", audio_codec="aac", threads=4)
+                st.session_state.final_video_path = out_file
+                status.update(label="✅ Render Success!", state="complete")
+            except Exception as e:
+                st.error(f"❌ Render Error: {str(e)}")
+
+# --- หมวดที่ 4: Social Share ---
+if st.session_state.final_video_path:
+    st.divider()
+    res_c1, res_c2 = st.columns([1.5, 1])
+    with res_c1:
+        st.video(st.session_state.final_video_path)
+        with open(st.session_state.final_video_path, "rb") as f:
+            st.download_button("📥 Download", f, "output_video.mp4", use_container_width=True)
+    with res_c2:
+        st.subheader("🚀 Share")
+        st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
+        st.link_button("⚫ TikTok", "https://www.tiktok.com/upload")
