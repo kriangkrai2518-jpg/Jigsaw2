@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import textwrap
 
-# --- หมวดที่ 1: ระบบพื้นฐาน ---
+# --- หมวดที่ 1: ระบบพื้นฐาน (Standard Config) ---
 st.set_page_config(page_title="Jigsaw Universal Assembler", layout="wide")
 
 def create_subtitle_overlay(text, size):
@@ -33,9 +33,9 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Dual-Channel Fixed)")
+st.title("🎬 Jigsaw Master (Stable Audio & Syntax)")
 
-# --- หมวดที่ 2: ส่วนรับข้อมูล ---
+# --- หมวดที่ 2: ส่วนรับข้อมูล (Inputs) ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
@@ -49,12 +49,12 @@ with col2:
 
 st.divider()
 
-# --- หมวดที่ 3: ระบบเรนเดอร์ ---
+# --- หมวดที่ 3: ระบบเรนเดอร์ (Render Engine) ---
 scene_configs = []
 if uploaded_files:
     sorted_files = sorted(uploaded_files, key=lambda x: x.name)
     for i, file in enumerate(sorted_files):
-        with st.expander(f"🎤 Scene {i+1}", expanded=True):
+        with st.expander(f"🎤 Scene {i+1}: {file.name}", expanded=True):
             sc_col1, sc_col2 = st.columns([2, 1])
             with sc_col1:
                 cap = st.text_area(f"Subtitle:", key=f"cap_{i}", value=f"Scene {i+1}")
@@ -64,7 +64,7 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Final Rendering...") as status:
+        with st.status("🎬 Processing Rendering...") as status:
             try:
                 final_clips = []
                 TARGET_FPS = 24 
@@ -86,7 +86,7 @@ if uploaded_files:
                     sub_clip = ImageClip(sub_img).set_duration(base_v.duration).set_position(('center', 'center'))
                     clip = CompositeVideoClip([base_v, sub_clip])
 
-                    # Voiceover Channel (Per Scene)
+                    # 🎙️ Voiceover Mix (Per Scene)
                     if config["voice"]:
                         v_suffix = os.path.splitext(config["voice"].name)[1].lower()
                         with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
@@ -96,33 +96,13 @@ if uploaded_files:
                     
                     final_clips.append(clip)
 
-                # รวมคลิปวิดีโอเข้าด้วยกัน
+                # รวมคลิปวิดีโอ
                 full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
                 
-                # Global BGM Channel Mixing
-                final_audio_tracks = []
+                # 🎵 BGM Mixing Logic
+                audio_tracks = []
                 if full_video.audio:
-                    final_audio_tracks.append(full_video.audio)
+                    audio_tracks.append(full_video.audio)
 
                 if global_bgm:
-                    bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=bg_suffix) as bg_temp:
-                        bg_temp.write(global_bgm.getvalue())
-                        bg_audio = AudioFileClip(bg_temp.name).volumex(bgm_volume).set_duration(full_video.duration)
-                        final_audio_tracks.append(bg_audio)
-
-                if final_audio_tracks:
-                    full_video.audio = CompositeAudioClip(final_audio_tracks)
-
-                out_file = "jigsaw_dual_fixed.mp4"
-                full_video.write_videofile(
-                    out_file, 
-                    fps=TARGET_FPS, 
-                    codec="libx264", 
-                    audio_codec="aac", 
-                    audio_fps=44100, 
-                    temp_audiofile='temp-fix.m4a', 
-                    remove_temp=True
-                )
-                
-                st.session_state.final_video_path = out_file
+                    bg_suffix = os.path.splitext(global_
