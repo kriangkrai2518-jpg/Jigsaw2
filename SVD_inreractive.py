@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import textwrap
 
-# --- หมวดที่ 1: ระบบมาตรฐาน ---
+# --- หมวดที่ 1: มาตรฐานระบบ (Locked 🔒) ---
 st.set_page_config(page_title="Jigsaw Universal Assembler", layout="wide")
 
 def get_reading_duration(text):
@@ -39,14 +39,14 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Audio-First Engine)")
+st.title("🎬 Jigsaw Master (Ultra Stable Engine)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
     uploaded_files = st.file_uploader("Add Images/MP4", type=['jpg','png','jpeg','mp4'], accept_multiple_files=True)
-    global_bgm = st.file_uploader("Upload BGM (All Formats)", type=["mp3","wav","m4a","mp4"])
+    global_bgm = st.file_uploader("Upload BGM (Universal)", type=["mp3","wav","m4a","mp4"])
 
 with col2:
     st.header("🖥️ Terminal")
@@ -74,11 +74,10 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Running Audio-First Engine...") as status:
+        with st.status("🎬 Rendering with FPS Fix...") as status:
             try:
                 final_clips = []
-                all_voice_tracks = []
-                current_time = 0.0
+                TARGET_FPS = 24 # ล็อค FPS เพื่อแก้ Error
 
                 for i, config in enumerate(scene_configs):
                     suffix = os.path.splitext(config["file"].name)[1].lower()
@@ -86,76 +85,36 @@ if uploaded_files:
                         t.write(config["file"].getvalue())
                         temp_path = t.name
 
-                    # สร้าง Visual Clip
+                    # 1. Visual Clip (Lock FPS)
                     if suffix == '.mp4':
-                        clip = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).without_audio()
+                        base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).set_fps(TARGET_FPS)
+                        sub_img = create_subtitle_overlay(config["cap"], base_v.size)
+                        sub_clip = ImageClip(sub_img).set_duration(base_v.duration).set_position(('center', 'center')).set_fps(TARGET_FPS)
+                        clip = CompositeVideoClip([base_v, sub_clip])
                     else:
                         img = Image.open(temp_path).convert("RGB")
                         img_array = np.array(img.resize((1280, int(1280 * img.height / img.width))))
-                        clip = ImageClip(img_array).set_duration(config["dur"])
+                        sub_img = create_subtitle_overlay(config["cap"], (img_array.shape[1], img_array.shape[0]))
+                        pil_base, pil_sub = Image.fromarray(img_array).convert("RGBA"), Image.fromarray(sub_img, "RGBA")
+                        combined = Image.alpha_composite(pil_base, pil_sub)
+                        clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"]).set_fps(TARGET_FPS)
 
-                    # ใส่ Subtitle
-                    sub_img = create_subtitle_overlay(config["cap"], clip.size)
-                    sub_clip = ImageClip(sub_img).set_duration(clip.duration).set_position(('center', 'center'))
-                    clip = CompositeVideoClip([clip, sub_clip])
-
-                    # เก็บ Track เสียงพากย์แยกไว้ (Audio-First Strategy)
+                    # 2. Voiceover (Scene Level)
                     if config["voice"]:
-                        try:
-                            v_suffix = os.path.splitext(config["voice"].name)[1].lower()
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
-                                v_temp.write(config["voice"].getvalue())
-                                v_audio = AudioFileClip(v_temp.name) if v_suffix != ".mp4" else VideoFileClip(v_temp.name).audio
-                                if v_audio:
-                                    v_audio = v_audio.volumex(voice_volume).set_start(current_time).set_duration(min(v_audio.duration, clip.duration))
-                                    all_voice_tracks.append(v_audio)
-                        except:
-                            st.warning(f"⚠️ ข้ามเสียง Scene {i+1} เพราะไฟล์มีปัญหา")
-
+                        v_suffix = os.path.splitext(config["voice"].name)[1].lower()
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
+                            v_temp.write(config["voice"].getvalue())
+                            v_audio = AudioFileClip(v_temp.name) if v_suffix != ".mp4" else VideoFileClip(v_temp.name).audio
+                            v_audio = v_audio.volumex(voice_volume).set_duration(clip.duration)
+                            clip = clip.set_audio(v_audio)
+                    
                     final_clips.append(clip)
-                    current_time += clip.duration
 
-                # รวมวิดีโอ
-                full_video = concatenate_videoclips(final_clips, method="compose")
+                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
                 
-                # รวมเสียง BGM และ Voiceover ทั้งหมดเข้าด้วยกัน
-                audio_layers = []
-                
-                # 1. ใส่ BGM (ถ้ามี)
+                # 3. Global BGM Mixing
                 if global_bgm:
                     bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=bg_suffix) as bg_temp:
                         bg_temp.write(global_bgm.getvalue())
-                        bg_audio = AudioFileClip(bg_temp.name) if bg_suffix != ".mp4" else VideoFileClip(bg_temp.name).audio
-                        bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
-                        audio_layers.append(bg_audio)
-                
-                # 2. ใส่ Voiceover ทั้งหมด
-                if all_voice_tracks:
-                    audio_layers.extend(all_voice_tracks)
-
-                # 3. ผสมเสียงและประกอบเข้ากับวิดีโอ
-                if audio_layers:
-                    final_audio = CompositeAudioClip(audio_layers)
-                    full_video = full_video.set_audio(final_audio)
-
-                out_file = "jigsaw_audio_final.mp4"
-                full_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", temp_audiofile='temp-audio.m4a', remove_temp=True)
-                st.session_state.final_video_path = out_file
-                status.update(label="✅ Success!", state="complete")
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-
-# --- หมวดที่ 4: Social Share ---
-if st.session_state.final_video_path:
-    st.divider()
-    res_c1, res_c2 = st.columns([1.5, 1])
-    with res_c1:
-        st.video(st.session_state.final_video_path)
-        with open(st.session_state.final_video_path, "rb") as f:
-            st.download_button("📥 Download Video", f, "land_video.mp4", use_container_width=True)
-    with res_c2:
-        st.subheader("🚀 Social Share")
-        st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
-        st.link_button("⚫ TikTok Upload", "https://www.tiktok.com/upload")
-        st.link_button("🔴 YouTube Shorts", "https://www.youtube.com/upload")
+                        bg_audio = AudioFileClip(bg
