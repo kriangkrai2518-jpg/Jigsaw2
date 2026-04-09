@@ -39,7 +39,7 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Syntax Fixed)")
+st.title("🎬 Jigsaw Master (Structure Fixed)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -85,7 +85,6 @@ if uploaded_files:
                         t.write(config["file"].getvalue())
                         temp_path = t.name
 
-                    # 1. Visual Clip Processing
                     if suffix == '.mp4':
                         base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).set_fps(TARGET_FPS)
                         sub_img = create_subtitle_overlay(config["cap"], base_v.size)
@@ -100,20 +99,9 @@ if uploaded_files:
                         combined = Image.alpha_composite(pil_base, pil_sub)
                         clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"]).set_fps(TARGET_FPS)
 
-                    # 2. Voiceover Mixing
                     if config["voice"]:
-                        v_suffix = os.path.splitext(config["voice"].name)[1].lower()
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
-                            v_temp.write(config["voice"].getvalue())
-                            v_audio = AudioFileClip(v_temp.name) if v_suffix != ".mp4" else VideoFileClip(v_temp.name).audio
-                            if v_audio:
-                                v_audio = v_audio.volumex(voice_volume).set_duration(clip.duration)
-                                clip = clip.set_audio(v_audio)
-                    
-                    final_clips.append(clip)
-
-                # 3. Concatenate and BGM Mix
-                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
-                
-                if global_bgm:
-                    bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
+                        try:
+                            v_suffix = os.path.splitext(config["voice"].name)[1].lower()
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
+                                v_temp.write(config["voice"].getvalue())
+                                v_
