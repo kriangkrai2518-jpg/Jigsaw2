@@ -20,7 +20,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Audio Fix)")
+st.title("🎬 Jigsaw Master (Stable Audio I/O)")
 col1, col2 = st.columns(2)
 with col1:
     files = st.file_uploader("Assets", type=['jpg','png','mp4'], accept_multiple_files=True)
@@ -45,6 +45,7 @@ if files:
                 clips = []
                 for cfg in configs:
                     ext = os.path.splitext(cfg["f"].name)[1].lower()
+                    # ใช้ระบบจัดการไฟล์ที่ปลอดภัยกว่าเพื่อให้ข้อมูลลง Disk ครบถ้วน
                     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as t:
                         t.write(cfg["f"].getvalue())
                         p = t.name
@@ -58,28 +59,41 @@ if files:
                     sub = ImageClip(create_sub(cfg["cap"], v.size)).set_duration(v.duration).set_position('center')
                     clip = CompositeVideoClip([v, sub])
 
+                    # แก้ไขจุดที่ทำให้ไฟล์ MP3 เสีย (Voiceover)
                     if cfg["v"]:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as vt:
+                        v_ext = os.path.splitext(cfg["v"].name)[1].lower()
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=v_ext) as vt:
                             vt.write(cfg["v"].getvalue())
-                            clip = clip.set_audio(AudioFileClip(vt.name).volumex(voice_v).set_duration(clip.duration))
+                            vt.flush() # บังคับเขียนลง Disk
+                            os.fsync(vt.fileno()) # ประกันว่าข้อมูลไม่ค้างใน Cache
+                            v_p = vt.name
+                        
+                        v_audio = AudioFileClip(v_p).volumex(voice_v).set_duration(clip.duration)
+                        clip = clip.set_audio(v_audio)
                     clips.append(clip)
 
                 full = concatenate_videoclips(clips, method="compose").set_fps(24)
                 tracks = [full.audio] if full.audio else []
                 
+                # แก้ไขจุดที่ทำให้ไฟล์ MP3 เสีย (BGM)
                 if bgm_f:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as bt:
+                    b_ext = os.path.splitext(bgm_f.name)[1].lower()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=b_ext) as bt:
                         bt.write(bgm_f.getvalue())
-                        tracks.append(AudioFileClip(bt.name).volumex(bgm_v).set_duration(full.duration))
+                        bt.flush()
+                        os.fsync(bt.fileno())
+                        b_p = bt.name
+                    tracks.append(AudioFileClip(b_p).volumex(bgm_v).set_duration(full.duration))
                 
                 if tracks: full.audio = CompositeAudioClip(tracks)
                 
                 out = "final.mp4"
-                full.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, temp_audiofile='temp.m4a', remove_temp=True)
+                full.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, remove_temp=True)
                 st.session_state.v_path = out
-                status.update(label="✅ Done!", state="complete")
-            except Exception as e: st.error(f"Error: {e}")
+                status.update(label="✅ Render Success!", state="complete")
+            except Exception as e: st.error(f"Render Error: {e}")
 
 if st.session_state.v_path:
     st.video(st.session_state.v_path)
-    st.download_button("📥 Download", open(st.session_state.v_path, "rb"), "video.mp4")
+    with open(st.session_state.v_path, "rb") as f:
+        st.download_button("📥 Download Video", f, "jigsaw_output.mp4")
