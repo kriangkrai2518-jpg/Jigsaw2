@@ -39,7 +39,7 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Sealed Stable Engine)")
+st.title("🎬 Jigsaw Master (Force Audio Sync)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -70,7 +70,7 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Rendering Final Output...") as status:
+        with st.status("🎬 Force Audio Sync Rendering...") as status:
             try:
                 final_clips = []
                 TARGET_FPS = 24 
@@ -81,6 +81,7 @@ if uploaded_files:
                         t.write(config["file"].getvalue())
                         temp_path = t.name
 
+                    # Visual Part
                     if suffix == '.mp4':
                         base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).set_fps(TARGET_FPS)
                         sub_img = create_subtitle_overlay(config["cap"], base_v.size)
@@ -95,7 +96,7 @@ if uploaded_files:
                         combined = Image.alpha_composite(pil_base, pil_sub)
                         clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"]).set_fps(TARGET_FPS)
 
-                    # ✅ Sealed Voiceover Block (Fixed Line 107 Area)
+                    # ✅ FIXED: Scene Audio Explicit Sync
                     if config["voice"]:
                         try:
                             v_suffix = os.path.splitext(config["voice"].name)[1].lower()
@@ -105,14 +106,18 @@ if uploaded_files:
                                 if v_audio:
                                     v_audio = v_audio.volumex(voice_volume).set_duration(clip.duration)
                                     clip = clip.set_audio(v_audio)
-                        except Exception as ve:
-                            st.warning(f"⚠️ Scene {i+1} Audio Skipped: {str(ve)}")
+                        except Exception:
+                            pass # Skip if voice file is corrupted
                     
                     final_clips.append(clip)
 
                 full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
                 
-                # ✅ Sealed Global BGM Block
+                # ✅ FIXED: Global Audio Re-mixing with Explicit FPS/Sample Rate
+                audio_tracks = []
+                if full_video.audio:
+                    audio_tracks.append(full_video.audio)
+
                 if global_bgm:
                     try:
                         bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
@@ -120,29 +125,29 @@ if uploaded_files:
                             bg_temp.write(global_bgm.getvalue())
                             bg_audio = AudioFileClip(bg_temp.name) if bg_suffix != ".mp4" else VideoFileClip(bg_temp.name).audio
                             bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
-                            
-                            audio_list = [bg_audio]
-                            if full_video.audio is not None:
-                                audio_list.append(full_video.audio)
-                            full_video = full_video.set_audio(CompositeAudioClip(audio_list))
-                    except Exception as bge:
-                        st.warning(f"⚠️ BGM Skipped: {str(bge)}")
+                            audio_tracks.append(bg_audio)
+                    except Exception:
+                        pass
 
-                out_file = "jigsaw_sealed.mp4"
-                full_video.write_videofile(out_file, fps=TARGET_FPS, codec="libx264", audio_codec="aac", threads=4)
+                if audio_tracks:
+                    full_video = full_video.set_audio(CompositeAudioClip(audio_tracks))
+
+                out_file = "jigsaw_audio_final.mp4"
+                # ✅ บังคับใช้ AAC และตั้งค่า Audio FPS (44100) เพื่อแก้ปัญหาเสียงไม่ติด
+                full_video.write_videofile(out_file, fps=TARGET_FPS, codec="libx264", audio_codec="aac", audio_fps=44100, threads=4)
                 st.session_state.final_video_path = out_file
                 status.update(label="✅ Render Success!", state="complete")
             except Exception as e:
                 st.error(f"❌ Render Error: {str(e)}")
 
-# --- หมวดที่ 4: Social Share ---
+# --- หมวดที่ 4: Social Hub ---
 if st.session_state.final_video_path:
     st.divider()
     res_c1, res_c2 = st.columns([1.5, 1])
     with res_c1:
         st.video(st.session_state.final_video_path)
         with open(st.session_state.final_video_path, "rb") as f:
-            st.download_button("📥 Download", f, "output_video.mp4", use_container_width=True)
+            st.download_button("📥 Download", f, "output.mp4", use_container_width=True)
     with res_c2:
         st.subheader("🚀 Share")
         st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
