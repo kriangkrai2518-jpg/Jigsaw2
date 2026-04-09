@@ -1,6 +1,6 @@
 import streamlit as st
 from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip, vfx
-import tempfile, os, textwrap, numpy as np, math # เพิ่ม math เข้ามา
+import tempfile, os, textwrap, numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 # --- 1. ระบบพื้นฐาน ---
@@ -21,7 +21,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Manual Sync Fix)")
+st.title("🎬 Jigsaw Master (Final Stable Edition)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -55,7 +55,7 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Processing Advanced Sync...") as status:
+        with st.status("🎬 Rendering Stable Output...") as status:
             try:
                 final_clips = []
                 FPS = 24
@@ -82,56 +82,4 @@ if files:
                         base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
                     else:
                         img = Image.open(p).convert("RGB")
-                        new_h = int(1280 * img.height / img.width)
-                        base_v = ImageClip(np.array(img.resize((1280, new_h)))).set_duration(scene_dur).set_fps(FPS)
-                    
-                    sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
-                    clip = CompositeVideoClip([base_v, sub])
-                    if v_audio: 
-                        clip.audio = CompositeAudioClip([v_audio.set_start(0).set_duration(scene_dur)])
-                    final_clips.append(clip)
-
-                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(FPS)
-                
-                if bgm_f:
-                    b_ext = os.path.splitext(bgm_f.name)[1].lower()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=b_ext) as bt:
-                        bt.write(bgm_f.getvalue())
-                        bt.flush()
-                        os.fsync(bt.fileno())
-                        
-                        # ✅ แก้ไขจุดตายด้วย Manual Looping
-                        bg_audio_raw = AudioFileClip(bt.name)
-                        
-                        # คำนวณรอบที่ต้องเล่นซ้ำให้ครอบคลุม และบวกเผื่อไป 10 วินาที
-                        n_loops = math.ceil((full_video.duration + 10) / bg_audio_raw.duration)
-                        bg_audio = concatenate_videoclips([], is_multimedia=True).audio # สร้าง Audio เปล่า
-                        
-                        # บังคับวนซ้ำแบบลูกทุ่งแต่เสถียรที่สุด
-                        bg_audio = vfx.loop(bg_audio_raw, n_loops=n_loops)
-                        bg_audio = bg_audio.set_duration(full_video.duration + 2.0).volumex(bgm_v)
-                        
-                        # ผสมเสียงโดยให้ BGM ยาวกว่าวิดีโอ 2 วินาทีเสมอ เพื่อเป็น Buffer
-                        current_audio = [full_video.audio] if full_video.audio else []
-                        current_audio.append(bg_audio)
-                        full_video.audio = CompositeAudioClip(current_audio).set_duration(full_video.duration)
-
-                out = "final_manual_fixed.mp4"
-                full_video.write_videofile(out, fps=FPS, codec="libx264", audio_codec="aac", audio_fps=44100)
-                st.session_state.v_path = out
-                status.update(label="✅ Success!", state="complete")
-            except Exception as e:
-                st.error(f"Render Error: {e}")
-
-# --- 4. แสดงผล ---
-if st.session_state.v_path:
-    st.divider()
-    res1, res2 = st.columns([1.5, 1])
-    with res1:
-        st.video(st.session_state.v_path)
-        with open(st.session_state.v_path, "rb") as f:
-            st.download_button("📥 Download Video", f, "final_jigsaw.mp4", use_container_width=True)
-    with res2:
-        st.subheader("🚀 Social Share")
-        st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
-        st.link_button("⚫ TikTok", "https://www.tiktok.com/upload")
+                        new_h = int(1280 * img.height / img.width
