@@ -21,14 +21,13 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (MP4 BGM Supported)")
+st.title("🎬 Jigsaw Master (Final Parameter Fix)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
     files = st.file_uploader("Add Images/MP4", type=['jpg','png','jpeg','mp4'], accept_multiple_files=True)
-    # ✅ ปรับให้รองรับ mp4 ในช่อง BGM
     bgm_f = st.file_uploader("🎵 Global BGM (MP3/MP4 Audio)", type=["mp3","wav","m4a","mp4"])
 
 with col2:
@@ -59,6 +58,8 @@ if files:
         with st.status("🎬 Processing Rendering...") as status:
             try:
                 final_clips = []
+                TARGET_FPS = 24 # กำหนดค่ากลางไว้ที่นี่
+
                 for cfg in configs:
                     ext = os.path.splitext(cfg["f"].name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as t:
@@ -68,14 +69,12 @@ if files:
                     v_audio = None
                     scene_dur = cfg["dur"]
                     
-                    # ✅ ปรับปรุงการสกัดเสียงพากย์ (Voiceover) จาก MP4
                     if cfg["v"]:
                         v_ext = os.path.splitext(cfg["v"].name)[1].lower()
                         with tempfile.NamedTemporaryFile(delete=False, suffix=v_ext) as vt:
                             vt.write(cfg["v"].getvalue())
                             vt.flush()
                             os.fsync(vt.fileno())
-                            # ถ้าเป็น mp4 ให้ใช้ .audio จาก VideoFileClip
                             if v_ext == ".mp4":
                                 v_audio = VideoFileClip(vt.name).audio.volumex(voice_v)
                             else:
@@ -83,27 +82,25 @@ if files:
                         scene_dur = max(scene_dur, v_audio.duration + 0.2)
 
                     if ext == '.mp4':
-                        base_v = VideoFileClip(p).resize(width=1280).set_fps(24).without_audio()
+                        base_v = VideoFileClip(p).resize(width=1280).set_fps(TARGET_FPS).without_audio()
                         base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
                     else:
                         img = Image.open(p).convert("RGB")
-                        base_v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(scene_dur).set_fps(24)
+                        base_v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(scene_dur).set_fps(TARGET_FPS)
                     
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     clip = CompositeVideoClip([base_v, sub])
                     if v_audio: clip.audio = CompositeAudioClip([v_audio.set_start(0)])
                     final_clips.append(clip)
 
-                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(24)
+                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
                 
-                # ✅ ปรับปรุงการสกัดเสียง BGM จาก MP4
                 if bgm_f:
                     b_ext = os.path.splitext(bgm_f.name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=b_ext) as bt:
                         bt.write(bgm_f.getvalue())
                         bt.flush()
                         os.fsync(bt.fileno())
-                        # ถ้า BGM เป็น mp4 ให้สกัดเสียงออกมา
                         if b_ext == ".mp4":
                             bg_audio = VideoFileClip(bt.name).audio.volumex(bgm_v).set_duration(full_video.duration)
                         else:
@@ -113,8 +110,17 @@ if files:
                         current_audio.append(bg_audio)
                         full_video.audio = CompositeAudioClip(current_audio)
 
-                out = "final_universal_audio.mp4"
-                full_video.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, remove_temp=True)
+                out = "final_fix.mp4"
+                # ✅ แก้ไขพารามิเตอร์การเขียนไฟล์ให้มาตรฐานที่สุด
+                full_video.write_videofile(
+                    out, 
+                    fps=TARGET_FPS, 
+                    codec="libx264", 
+                    audio_codec="aac", 
+                    audio_fps=44100, 
+                    preset="ultrafast", # ช่วยลดภาระ CPU ในการเรนเดอร์
+                    threads=4
+                )
                 st.session_state.v_path = out
                 status.update(label="✅ Success!", state="complete")
             except Exception as e: st.error(f"Error: {e}")
