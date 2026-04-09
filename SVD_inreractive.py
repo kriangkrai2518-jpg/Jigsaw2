@@ -23,7 +23,7 @@ def create_subtitle_overlay(text, size):
     if text:
         font_path = "Kanit-Bold.ttf"
         try:
-            font_size = int(height * 0.03) # ขนาดฟอนต์ 3% ตามสเปกพรีเมียม
+            font_size = int(height * 0.03) 
             font = ImageFont.truetype(font_path, font_size) if os.path.exists(font_path) else ImageFont.load_default()
         except:
             font = ImageFont.load_default()
@@ -39,14 +39,14 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Zero-Error Engine)")
+st.title("🎬 Jigsaw Master (Robust Audio Edition)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
     uploaded_files = st.file_uploader("Add Images or MP4", type=['jpg', 'png', 'jpeg', 'mp4'], accept_multiple_files=True)
-    global_bgm = st.file_uploader("Upload BGM (All Formats)", type=["mp3", "wav", "m4a", "mp4"])
+    global_bgm = st.file_uploader("Upload BGM (MP3, WAV, M4A, MP4)", type=["mp3", "wav", "m4a", "mp4"])
 
 with col2:
     st.header("🖥️ Terminal")
@@ -74,7 +74,7 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Processing with Audio Sanitizer...") as status:
+        with st.status("🎬 Processing with Robust Audio Engine...") as status:
             try:
                 final_clips = []
                 for config in scene_configs:
@@ -83,7 +83,7 @@ if uploaded_files:
                         t.write(config["file"].getvalue())
                         temp_path = t.name
 
-                    # Visual Processing
+                    # Process Visuals
                     if suffix == '.mp4':
                         base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280)
                         sub_img = create_subtitle_overlay(config["cap"], base_v.size)
@@ -97,40 +97,49 @@ if uploaded_files:
                         combined = Image.alpha_composite(pil_base, pil_sub)
                         clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"])
 
-                    # Audio Sanitizer: จัดการเสียงพากย์ราย Scene
+                    # --- Robust Voiceover Handler ---
                     if config["voice"]:
-                        v_suffix = os.path.splitext(config["voice"].name)[1].lower()
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
-                            v_temp.write(config["voice"].getvalue())
-                            v_audio = VideoFileClip(v_temp.name).audio if v_suffix == ".mp4" else AudioFileClip(v_temp.name)
-                            # ปรับระดับเสียงและคุมเวลาให้ไม่เกิน Scene
-                            v_audio = v_audio.volumex(voice_volume).set_duration(min(v_audio.duration, clip.duration))
-                            clip = clip.set_audio(v_audio)
+                        try:
+                            v_suffix = os.path.splitext(config["voice"].name)[1].lower()
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
+                                v_temp.write(config["voice"].getvalue())
+                                # ตรวจสอบไฟล์เสียง ถ้าเสียหาย MoviePy จะข้าม Scene นี้ไปแทนที่จะค้าง
+                                if v_suffix == ".mp4":
+                                    v_audio = VideoFileClip(v_temp.name).audio
+                                else:
+                                    v_audio = AudioFileClip(v_temp.name)
+                                
+                                if v_audio:
+                                    v_audio = v_audio.volumex(voice_volume).set_duration(min(v_audio.duration, clip.duration))
+                                    clip = clip.set_audio(v_audio)
+                        except Exception as audio_err:
+                            st.warning(f"⚠️ ข้ามเสียงพากย์ใน Scene {i+1} เนื่องจากไฟล์เสียหาย: {audio_err}")
                     
                     final_clips.append(clip)
 
                 full_video = concatenate_videoclips(final_clips, method="compose")
                 
-                # จัดการ BGM และผสมเสียง
+                # --- Robust BGM Handler ---
                 if global_bgm:
-                    bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=bg_suffix) as bg_temp:
-                        bg_temp.write(global_bgm.getvalue())
-                        bg_audio = VideoFileClip(bg_temp.name).audio if bg_suffix == ".mp4" else AudioFileClip(bg_temp.name)
-                        bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
-                        
-                        # รวมเสียงแบบตรวจสอบ track
-                        all_audio_tracks = [bg_audio]
-                        if full_video.audio is not None:
-                            all_audio_tracks.append(full_video.audio)
-                        full_video = full_video.set_audio(CompositeAudioClip(all_audio_tracks))
+                    try:
+                        bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=bg_suffix) as bg_temp:
+                            bg_temp.write(global_bgm.getvalue())
+                            bg_audio = VideoFileClip(bg_temp.name).audio if bg_suffix == ".mp4" else AudioFileClip(bg_temp.name)
+                            bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
+                            
+                            tracks = [bg_audio]
+                            if full_video.audio: tracks.append(full_video.audio)
+                            full_video = full_video.set_audio(CompositeAudioClip(tracks))
+                    except:
+                        st.warning("⚠️ ไม่สามารถใส่ BGM ได้เนื่องจากไฟล์ขัดข้อง")
 
-                out_file = "jigsaw_zero_error.mp4"
+                out_file = "jigsaw_robust_render.mp4"
                 full_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", threads=4, preset="ultrafast")
                 st.session_state.final_video_path = out_file
-                status.update(label="✅ Render สำเร็จ!", state="complete")
+                status.update(label="✅ Success!", state="complete")
             except Exception as e:
-                st.error(f"❌ ระบบขัดข้อง: {str(e)}")
+                st.error(f"❌ Critical Error: {str(e)}")
 
 # --- หมวดที่ 4: Social Hub ---
 if st.session_state.final_video_path:
@@ -139,7 +148,7 @@ if st.session_state.final_video_path:
     with res_c1:
         st.video(st.session_state.final_video_path)
         with open(st.session_state.final_video_path, "rb") as f:
-            st.download_button("📥 Download Video", f, "land_presentation.mp4", use_container_width=True)
+            st.download_button("📥 Download Video", f, "land_video.mp4", use_container_width=True)
     with res_c2:
         st.subheader("🚀 Social Share")
         st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/", use_container_width=True)
