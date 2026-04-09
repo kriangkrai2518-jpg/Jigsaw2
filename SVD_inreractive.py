@@ -21,7 +21,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Final Stable Edition)")
+st.title("🎬 Jigsaw Master (Final Stable Build)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -55,7 +55,7 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Rendering Stable Output...") as status:
+        with st.status("🎬 Processing Rendering...") as status:
             try:
                 final_clips = []
                 FPS = 24
@@ -80,6 +80,3 @@ if files:
                     if ext == '.mp4':
                         base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
                         base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
-                    else:
-                        img = Image.open(p).convert("RGB")
-                        new_h = int(1280 * img.height / img.width
