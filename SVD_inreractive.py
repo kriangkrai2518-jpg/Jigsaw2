@@ -21,7 +21,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Final Parameter Fix)")
+st.title("🎬 Jigsaw Master (Force FPS Sync)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -55,10 +55,10 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Processing Rendering...") as status:
+        with st.status("🎬 Force Sync Rendering...") as status:
             try:
                 final_clips = []
-                TARGET_FPS = 24 # กำหนดค่ากลางไว้ที่นี่
+                FPS = 24 # บังคับค่า FPS มาตรฐานให้ทุก Clip
 
                 for cfg in configs:
                     ext = os.path.splitext(cfg["f"].name)[1].lower()
@@ -76,24 +76,26 @@ if files:
                             vt.flush()
                             os.fsync(vt.fileno())
                             if v_ext == ".mp4":
-                                v_audio = VideoFileClip(vt.name).audio.volumex(voice_v)
+                                # ✅ บังคับ FPS ทันทีที่อ่านไฟล์วิดีโอเพื่อเอาเสียง
+                                v_temp = VideoFileClip(vt.name, fps_source='fps')
+                                v_audio = v_temp.audio.volumex(voice_v)
                             else:
                                 v_audio = AudioFileClip(vt.name).volumex(voice_v)
                         scene_dur = max(scene_dur, v_audio.duration + 0.2)
 
                     if ext == '.mp4':
-                        base_v = VideoFileClip(p).resize(width=1280).set_fps(TARGET_FPS).without_audio()
+                        base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
                         base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
                     else:
                         img = Image.open(p).convert("RGB")
-                        base_v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(scene_dur).set_fps(TARGET_FPS)
+                        base_v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(scene_dur).set_fps(FPS)
                     
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     clip = CompositeVideoClip([base_v, sub])
                     if v_audio: clip.audio = CompositeAudioClip([v_audio.set_start(0)])
                     final_clips.append(clip)
 
-                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
+                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(FPS)
                 
                 if bgm_f:
                     b_ext = os.path.splitext(bgm_f.name)[1].lower()
@@ -102,38 +104,8 @@ if files:
                         bt.flush()
                         os.fsync(bt.fileno())
                         if b_ext == ".mp4":
-                            bg_audio = VideoFileClip(bt.name).audio.volumex(bgm_v).set_duration(full_video.duration)
+                            # ✅ บังคับ FPS ทันทีที่อ่านไฟล์วิดีโอเพื่อเอา BGM
+                            bg_temp = VideoFileClip(bt.name, fps_source='fps')
+                            bg_audio = bg_temp.audio.volumex(bgm_v).set_duration(full_video.duration)
                         else:
-                            bg_audio = AudioFileClip(bt.name).volumex(bgm_v).set_duration(full_video.duration)
-                        
-                        current_audio = [full_video.audio] if full_video.audio else []
-                        current_audio.append(bg_audio)
-                        full_video.audio = CompositeAudioClip(current_audio)
-
-                out = "final_fix.mp4"
-                # ✅ แก้ไขพารามิเตอร์การเขียนไฟล์ให้มาตรฐานที่สุด
-                full_video.write_videofile(
-                    out, 
-                    fps=TARGET_FPS, 
-                    codec="libx264", 
-                    audio_codec="aac", 
-                    audio_fps=44100, 
-                    preset="ultrafast", # ช่วยลดภาระ CPU ในการเรนเดอร์
-                    threads=4
-                )
-                st.session_state.v_path = out
-                status.update(label="✅ Success!", state="complete")
-            except Exception as e: st.error(f"Error: {e}")
-
-# --- 4. แสดงผล ---
-if st.session_state.v_path:
-    st.divider()
-    res1, res2 = st.columns([1.5, 1])
-    with res1:
-        st.video(st.session_state.v_path)
-        with open(st.session_state.v_path, "rb") as f:
-            st.download_button("📥 Download Video", f, "final_jigsaw.mp4", use_container_width=True)
-    with res2:
-        st.subheader("🚀 Social Share")
-        st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
-        st.link_button("⚫ TikTok", "https://www.tiktok.com/upload")
+                            bg_audio = AudioFileClip(bt.
