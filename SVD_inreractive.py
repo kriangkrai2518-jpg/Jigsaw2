@@ -1,5 +1,6 @@
 import streamlit as st
 from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip, vfx 
+from moviepy.audio.fx.all import audio_loop # นำเข้าเฉพาะสำหรับ Audio Loop
 import tempfile, os, textwrap, numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,7 +22,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Safe Music Hub Restored)")
+st.title("🎬 Jigsaw Master (Audio Padding Edition)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -57,7 +58,7 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Final Sync Processing...") as status:
+        with st.status("🎬 Ensuring Zero-Gap Sync...") as status:
             try:
                 final_clips = []
                 for cfg in configs:
@@ -88,6 +89,7 @@ if files:
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     clip = CompositeVideoClip([base_v, sub])
                     if v_audio: 
+                        # ล็อคความยาวเสียงพากย์รายฉาก ไม่ให้ไหลเกิน scene_dur
                         clip.audio = CompositeAudioClip([v_audio.set_start(0).set_duration(scene_dur)])
                     final_clips.append(clip)
 
@@ -100,16 +102,21 @@ if files:
                         bt.flush()
                         os.fsync(bt.fileno())
                         
-                        # ✅ แก้ไขจุดตาย: Force Loop โดยไม่จำกัด duration ในครั้งแรก
-                        # แล้วค่อยมาตัด set_duration ให้เท่ากับ full_video ทีหลัง
-                        bg_audio = AudioFileClip(bt.name).fx(vfx.loop).set_duration(full_video.duration).volumex(bgm_v)
+                        # ✅ วิธีแก้ขั้นเด็ดขาด: 
+                        # 1. โหลด Audio แบบ Loop ไว้ก่อน
+                        # 2. ใช้ audio_loop เพื่อขยายความยาวให้เกินความยาววิดีโอ (Padding)
+                        # 3. ตัด (set_duration) ให้เท่ากับวิดีโอพอดี
+                        raw_bgm = AudioFileClip(bt.name)
+                        bg_audio = audio_loop(raw_bgm, duration=full_video.duration + 1.0) # เผื่อไว้ 1 วินาที
+                        bg_audio = bg_audio.set_duration(full_video.duration).volumex(bgm_v)
                         
                         current_audio = [full_video.audio] if full_video.audio else []
                         current_audio.append(bg_audio)
                         full_video.audio = CompositeAudioClip(current_audio)
 
-                out = "final_perfect_sync.mp4"
-                full_video.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, remove_temp=True)
+                out = "final_no_error.mp4"
+                # ✅ ใส่ค่า audio_fps และเลือก write โดยระบุ fps ชัดเจน
+                full_video.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100)
                 st.session_state.v_path = out
                 status.update(label="✅ Success!", state="complete")
             except Exception as e: st.error(f"Error: {e}")
