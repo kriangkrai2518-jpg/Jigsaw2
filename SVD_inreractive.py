@@ -1,6 +1,6 @@
 import streamlit as st
 from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip, vfx
-import tempfile, os, textwrap, numpy as np
+import tempfile, os, textwrap, numpy as np, math # เพิ่ม math เข้ามา
 from PIL import Image, ImageDraw, ImageFont
 
 # --- 1. ระบบพื้นฐาน ---
@@ -21,7 +21,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Zero-Error Buffer)")
+st.title("🎬 Jigsaw Master (Manual Sync Fix)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -55,7 +55,7 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Perfect Sync Rendering...") as status:
+        with st.status("🎬 Processing Advanced Sync...") as status:
             try:
                 final_clips = []
                 FPS = 24
@@ -100,19 +100,23 @@ if files:
                         bt.flush()
                         os.fsync(bt.fileno())
                         
-                        # ✅ แก้ไขแบบ Absolute:
+                        # ✅ แก้ไขจุดตายด้วย Manual Looping
                         bg_audio_raw = AudioFileClip(bt.name)
-                        # 1. ทำ Loop ให้ยาวกว่าวิดีโอรวม 2 วินาที เพื่อสร้าง Safe Zone
-                        safe_duration = full_video.duration + 2.0
-                        bg_audio = bg_audio_raw.fx(vfx.loop, duration=safe_duration)
-                        # 2. ปรับ Volume
-                        bg_audio = bg_audio.volumex(bgm_v)
-                        # 3. ใส่เข้าไปใน List ของ Audio โดยไม่ใช้ set_duration ล็อคหัวท้าย
-                        # แต่ใช้ CompositeAudioClip จัดการแทน
-                        full_video.audio = CompositeAudioClip([full_video.audio, bg_audio]).set_duration(full_video.duration)
+                        
+                        # คำนวณรอบที่ต้องเล่นซ้ำให้ครอบคลุม และบวกเผื่อไป 10 วินาที
+                        n_loops = math.ceil((full_video.duration + 10) / bg_audio_raw.duration)
+                        bg_audio = concatenate_videoclips([], is_multimedia=True).audio # สร้าง Audio เปล่า
+                        
+                        # บังคับวนซ้ำแบบลูกทุ่งแต่เสถียรที่สุด
+                        bg_audio = vfx.loop(bg_audio_raw, n_loops=n_loops)
+                        bg_audio = bg_audio.set_duration(full_video.duration + 2.0).volumex(bgm_v)
+                        
+                        # ผสมเสียงโดยให้ BGM ยาวกว่าวิดีโอ 2 วินาทีเสมอ เพื่อเป็น Buffer
+                        current_audio = [full_video.audio] if full_video.audio else []
+                        current_audio.append(bg_audio)
+                        full_video.audio = CompositeAudioClip(current_audio).set_duration(full_video.duration)
 
-                out = "final_sync_stable.mp4"
-                # ✅ กำหนด audio_fps ชัดเจนเพื่อลดการปัดเศษของ Codec
+                out = "final_manual_fixed.mp4"
                 full_video.write_videofile(out, fps=FPS, codec="libx264", audio_codec="aac", audio_fps=44100)
                 st.session_state.v_path = out
                 status.update(label="✅ Success!", state="complete")
