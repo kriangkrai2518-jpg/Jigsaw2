@@ -1,5 +1,5 @@
 import streamlit as st
-from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip
+from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip, vfx # เพิ่ม vfx เข้ามา
 import tempfile, os, textwrap, numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,9 +21,9 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Safe Music Hub Restored)")
+st.title("🎬 Jigsaw Master (Old Structure + Loop Fix)")
 
-# --- 2. UI Layout (Restored Buttons) ---
+# --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
@@ -35,7 +35,6 @@ with col2:
     bgm_v = st.slider("BGM Volume", 0.0, 1.0, 0.15, 0.05)
     voice_v = st.slider("Voiceover Volume", 0.0, 1.0, 0.90, 0.05)
     
-    # ✅ ส่วนของปุ่มเพลงฟรีที่หายไป กลับมาแล้วครับ
     st.markdown("### 🛡️ Safe Music Hub")
     m_col1, m_col2 = st.columns(2)
     with m_col1: 
@@ -77,6 +76,7 @@ if files:
                             vt.flush()
                             os.fsync(vt.fileno())
                             v_audio = AudioFileClip(vt.name).volumex(voice_v)
+                        # ✅ บังคับภาพยาวตามเสียง
                         scene_dur = max(scene_dur, v_audio.duration + 0.2)
 
                     if ext == '.mp4':
@@ -88,7 +88,9 @@ if files:
                     
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     clip = CompositeVideoClip([base_v, sub])
-                    if v_audio: clip.audio = CompositeAudioClip([v_audio.set_start(0)])
+                    if v_audio: 
+                        # ✅ จำกัดความยาวเสียงพากย์รายฉาก
+                        clip.audio = CompositeAudioClip([v_audio.set_start(0).set_duration(scene_dur)])
                     final_clips.append(clip)
 
                 full_video = concatenate_videoclips(final_clips, method="compose").set_fps(24)
@@ -99,7 +101,9 @@ if files:
                         bt.write(bgm_f.getvalue())
                         bt.flush()
                         os.fsync(bt.fileno())
-                        bg_audio = AudioFileClip(bt.name).volumex(bgm_v).set_duration(full_video.duration)
+                        # ✅ ใส่ระบบ Loop และ set_duration ป้องกัน Error วินาทีเกิน
+                        bg_audio = AudioFileClip(bt.name).volumex(bgm_v).fx(vfx.loop, duration=full_video.duration)
+                        
                         current_audio = [full_video.audio] if full_video.audio else []
                         current_audio.append(bg_audio)
                         full_video.audio = CompositeAudioClip(current_audio)
