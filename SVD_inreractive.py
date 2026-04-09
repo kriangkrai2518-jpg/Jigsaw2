@@ -1,108 +1,85 @@
 import streamlit as st
-from moviepy.editor import (
-    ImageClip, VideoFileClip, AudioFileClip, 
-    concatenate_videoclips, CompositeVideoClip, CompositeAudioClip
-)
-import tempfile
-import os
+from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip
+import tempfile, os, textwrap, numpy as np
 from PIL import Image, ImageDraw, ImageFont
-import numpy as np
-import textwrap
 
-# --- หมวดที่ 1: ระบบพื้นฐาน (Standard Config) ---
-st.set_page_config(page_title="Jigsaw Universal Assembler", layout="wide")
+st.set_page_config(page_title="Jigsaw Master", layout="wide")
 
-def create_subtitle_overlay(text, size):
-    width, height = size
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
+def create_sub(text, size):
+    w, h = size
+    ov = Image.new('RGBA', (w, h), (0,0,0,0))
+    d = ImageDraw.Draw(ov)
     if text:
-        font_path = "Kanit-Bold.ttf"
-        try:
-            font_size = int(height * 0.04) 
-            font = ImageFont.truetype(font_path, font_size) if os.path.exists(font_path) else ImageFont.load_default()
-        except:
-            font = ImageFont.load_default()
-        wrapped_text = textwrap.fill(text, width=40) 
-        bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=font, align="center")
-        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        x, y = (width - text_w) / 2, height - text_h - 80 
-        draw.multiline_text((x, y), wrapped_text, font=font, fill=(255,255,255,255), align="center", stroke_width=2, stroke_fill=(0,0,0,255))
-    return np.array(overlay)
+        try: f = ImageFont.truetype("Kanit-Bold.ttf", int(h*0.04))
+        except: f = ImageFont.load_default()
+        wt = textwrap.fill(text, width=40)
+        bx = d.multiline_textbbox((0,0), wt, font=f)
+        tw, th = bx[2]-bx[0], bx[3]-bx[1]
+        d.multiline_text(((w-tw)/2, h-th-80), wt, font=f, fill=(255,255,255,255), align="center", stroke_width=2, stroke_fill=(0,0,0,255))
+    return np.array(ov)
 
-if 'final_video_path' not in st.session_state:
-    st.session_state.final_video_path = None
+if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Stable Audio & Syntax)")
-
-# --- หมวดที่ 2: ส่วนรับข้อมูล (Inputs) ---
-col1, col2 = st.columns([1, 1])
+st.title("🎬 Jigsaw Master (Audio Fix)")
+col1, col2 = st.columns(2)
 with col1:
-    st.header("📂 Assets")
-    uploaded_files = st.file_uploader("Add Images/MP4", type=['jpg','png','jpeg','mp4'], accept_multiple_files=True)
-    global_bgm = st.file_uploader("🎵 Global BGM", type=["mp3","wav","m4a"])
-
+    files = st.file_uploader("Assets", type=['jpg','png','mp4'], accept_multiple_files=True)
+    bgm_f = st.file_uploader("🎵 BGM", type=["mp3","wav","m4a"])
 with col2:
-    st.header("🖥️ Audio Mixer")
-    bgm_volume = st.slider("BGM Volume", 0.0, 1.0, 0.15, 0.05)
-    voice_volume = st.slider("Voiceover Volume", 0.0, 1.0, 0.90, 0.05)
+    bgm_v = st.slider("BGM Vol", 0.0, 1.0, 0.15)
+    voice_v = st.slider("Voice Vol", 0.0, 1.0, 0.90)
 
-st.divider()
+configs = []
+if files:
+    for i, f in enumerate(sorted(files, key=lambda x: x.name)):
+        with st.expander(f"Scene {i+1}"):
+            c1, c2 = st.columns(2)
+            cap = c1.text_area("Subtitle", key=f"c_{i}", value=f"Scene {i+1}")
+            voi = c2.file_uploader("Voice", type=['mp3','wav'], key=f"v_{i}")
+            dur = c2.slider("Sec", 1.0, 15.0, 4.0, key=f"d_{i}")
+            configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
-# --- หมวดที่ 3: ระบบเรนเดอร์ (Render Engine) ---
-scene_configs = []
-if uploaded_files:
-    sorted_files = sorted(uploaded_files, key=lambda x: x.name)
-    for i, file in enumerate(sorted_files):
-        with st.expander(f"🎤 Scene {i+1}: {file.name}", expanded=True):
-            sc_col1, sc_col2 = st.columns([2, 1])
-            with sc_col1:
-                cap = st.text_area(f"Subtitle:", key=f"cap_{i}", value=f"Scene {i+1}")
-            with sc_col2:
-                v_file = st.file_uploader(f"Voiceover", type=['mp3','wav','m4a'], key=f"voice_{i}")
-                dur = st.slider(f"Duration", 1.0, 15.0, 4.0, key=f"dur_{i}")
-            scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
-
-    if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Processing Rendering...") as status:
+    if st.button("🚀 Render Video"):
+        with st.status("Rendering...") as status:
             try:
-                final_clips = []
-                TARGET_FPS = 24 
-
-                for i, config in enumerate(scene_configs):
-                    suffix = os.path.splitext(config["file"].name)[1].lower()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as t:
-                        t.write(config["file"].getvalue())
-                        temp_path = t.name
-
-                    if suffix == '.mp4':
-                        base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).set_fps(TARGET_FPS).without_audio()
-                    else:
-                        img = Image.open(temp_path).convert("RGB")
-                        img_array = np.array(img.resize((1280, int(1280 * img.height / img.width))))
-                        base_v = ImageClip(img_array).set_duration(config["dur"]).set_fps(TARGET_FPS)
-
-                    sub_img = create_subtitle_overlay(config["cap"], base_v.size)
-                    sub_clip = ImageClip(sub_img).set_duration(base_v.duration).set_position(('center', 'center'))
-                    clip = CompositeVideoClip([base_v, sub_clip])
-
-                    # 🎙️ Voiceover Mix (Per Scene)
-                    if config["voice"]:
-                        v_suffix = os.path.splitext(config["voice"].name)[1].lower()
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
-                            v_temp.write(config["voice"].getvalue())
-                            v_audio = AudioFileClip(v_temp.name).volumex(voice_volume).set_duration(clip.duration)
-                            clip = clip.set_audio(v_audio)
+                clips = []
+                for cfg in configs:
+                    ext = os.path.splitext(cfg["f"].name)[1].lower()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as t:
+                        t.write(cfg["f"].getvalue())
+                        p = t.name
                     
-                    final_clips.append(clip)
+                    if ext == '.mp4':
+                        v = VideoFileClip(p).subclip(0, cfg["dur"]).resize(width=1280).set_fps(24).without_audio()
+                    else:
+                        img = Image.open(p).convert("RGB")
+                        v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(cfg["dur"]).set_fps(24)
+                    
+                    sub = ImageClip(create_sub(cfg["cap"], v.size)).set_duration(v.duration).set_position('center')
+                    clip = CompositeVideoClip([v, sub])
 
-                # รวมคลิปวิดีโอ
-                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
+                    if cfg["v"]:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as vt:
+                            vt.write(cfg["v"].getvalue())
+                            clip = clip.set_audio(AudioFileClip(vt.name).volumex(voice_v).set_duration(clip.duration))
+                    clips.append(clip)
+
+                full = concatenate_videoclips(clips, method="compose").set_fps(24)
+                tracks = [full.audio] if full.audio else []
                 
-                # 🎵 BGM Mixing Logic
-                audio_tracks = []
-                if full_video.audio:
-                    audio_tracks.append(full_video.audio)
+                if bgm_f:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as bt:
+                        bt.write(bgm_f.getvalue())
+                        tracks.append(AudioFileClip(bt.name).volumex(bgm_v).set_duration(full.duration))
+                
+                if tracks: full.audio = CompositeAudioClip(tracks)
+                
+                out = "final.mp4"
+                full.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, temp_audiofile='temp.m4a', remove_temp=True)
+                st.session_state.v_path = out
+                status.update(label="✅ Done!", state="complete")
+            except Exception as e: st.error(f"Error: {e}")
 
-                if global_bgm:
-                    bg_suffix = os.path.splitext(global_
+if st.session_state.v_path:
+    st.video(st.session_state.v_path)
+    st.download_button("📥 Download", open(st.session_state.v_path, "rb"), "video.mp4")
