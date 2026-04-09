@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import textwrap
 
-# --- หมวดที่ 1: มาตรฐานระบบ (Locked 🔒) ---
+# --- หมวดที่ 1: ระบบมาตรฐาน ---
 st.set_page_config(page_title="Jigsaw Universal Assembler", layout="wide")
 
 def get_reading_duration(text):
@@ -23,7 +23,7 @@ def create_subtitle_overlay(text, size):
     if text:
         font_path = "Kanit-Bold.ttf"
         try:
-            font_size = int(height * 0.03) # ขนาดฟอนต์ 3% เพื่อความพรีเมียม
+            font_size = int(height * 0.03) 
             font = ImageFont.truetype(font_path, font_size) if os.path.exists(font_path) else ImageFont.load_default()
         except:
             font = ImageFont.load_default()
@@ -39,7 +39,7 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Ultra-Stable Engine)")
+st.title("🎬 Jigsaw Master (Audio-First Engine)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -74,81 +74,88 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Processing with Ultra-Stable Engine...") as status:
+        with st.status("🎬 Running Audio-First Engine...") as status:
             try:
                 final_clips = []
+                all_voice_tracks = []
+                current_time = 0.0
+
                 for i, config in enumerate(scene_configs):
                     suffix = os.path.splitext(config["file"].name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as t:
                         t.write(config["file"].getvalue())
                         temp_path = t.name
 
-                    # Visual Processing
+                    # สร้าง Visual Clip
                     if suffix == '.mp4':
-                        base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280)
-                        sub_img = create_subtitle_overlay(config["cap"], base_v.size)
-                        sub_clip = ImageClip(sub_img).set_duration(base_v.duration).set_position(('center', 'center'))
-                        clip = CompositeVideoClip([base_v, sub_clip])
+                        clip = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).without_audio()
                     else:
                         img = Image.open(temp_path).convert("RGB")
                         img_array = np.array(img.resize((1280, int(1280 * img.height / img.width))))
-                        sub_img = create_subtitle_overlay(config["cap"], (img_array.shape[1], img_array.shape[0]))
-                        pil_base, pil_sub = Image.fromarray(img_array).convert("RGBA"), Image.fromarray(sub_img, "RGBA")
-                        combined = Image.alpha_composite(pil_base, pil_sub)
-                        clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"])
+                        clip = ImageClip(img_array).set_duration(config["dur"])
 
-                    # 🛡️ Robust Voiceover Handler (ป้องกันไฟล์เสีย)
+                    # ใส่ Subtitle
+                    sub_img = create_subtitle_overlay(config["cap"], clip.size)
+                    sub_clip = ImageClip(sub_img).set_duration(clip.duration).set_position(('center', 'center'))
+                    clip = CompositeVideoClip([clip, sub_clip])
+
+                    # เก็บ Track เสียงพากย์แยกไว้ (Audio-First Strategy)
                     if config["voice"]:
                         try:
-                            v_bytes = config["voice"].getvalue()
-                            if len(v_bytes) > 0: # ตรวจสอบขนาดไฟล์
-                                v_suffix = os.path.splitext(config["voice"].name)[1].lower()
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
-                                    v_temp.write(v_bytes)
-                                    v_audio = VideoFileClip(v_temp.name).audio if v_suffix == ".mp4" else AudioFileClip(v_temp.name)
-                                    v_audio = v_audio.volumex(voice_volume).set_duration(clip.duration)
-                                    clip = clip.set_audio(v_audio)
+                            v_suffix = os.path.splitext(config["voice"].name)[1].lower()
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
+                                v_temp.write(config["voice"].getvalue())
+                                v_audio = AudioFileClip(v_temp.name) if v_suffix != ".mp4" else VideoFileClip(v_temp.name).audio
+                                if v_audio:
+                                    v_audio = v_audio.volumex(voice_volume).set_start(current_time).set_duration(min(v_audio.duration, clip.duration))
+                                    all_voice_tracks.append(v_audio)
                         except:
-                            st.warning(f"⚠️ ข้ามเสียงพากย์ Scene {i+1} เพราะไฟล์มีปัญหา")
-                    
-                    final_clips.append(clip)
+                            st.warning(f"⚠️ ข้ามเสียง Scene {i+1} เพราะไฟล์มีปัญหา")
 
+                    final_clips.append(clip)
+                    current_time += clip.duration
+
+                # รวมวิดีโอ
                 full_video = concatenate_videoclips(final_clips, method="compose")
                 
-                # 🛡️ Robust BGM Handler
+                # รวมเสียง BGM และ Voiceover ทั้งหมดเข้าด้วยกัน
+                audio_layers = []
+                
+                # 1. ใส่ BGM (ถ้ามี)
                 if global_bgm:
-                    try:
-                        bg_bytes = global_bgm.getvalue()
-                        if len(bg_bytes) > 0:
-                            bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=bg_suffix) as bg_temp:
-                                bg_temp.write(bg_bytes)
-                                bg_audio = VideoFileClip(bg_temp.name).audio if bg_suffix == ".mp4" else AudioFileClip(bg_temp.name)
-                                bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
-                                
-                                tracks = [bg_audio]
-                                if full_video.audio: tracks.append(full_video.audio)
-                                full_video = full_video.set_audio(CompositeAudioClip(tracks))
-                    except:
-                        st.warning("⚠️ ไม่สามารถโหลด BGM ได้")
+                    bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=bg_suffix) as bg_temp:
+                        bg_temp.write(global_bgm.getvalue())
+                        bg_audio = AudioFileClip(bg_temp.name) if bg_suffix != ".mp4" else VideoFileClip(bg_temp.name).audio
+                        bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
+                        audio_layers.append(bg_audio)
+                
+                # 2. ใส่ Voiceover ทั้งหมด
+                if all_voice_tracks:
+                    audio_layers.extend(all_voice_tracks)
 
-                out_file = "jigsaw_ultra_stable.mp4"
-                full_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", threads=4, preset="ultrafast")
+                # 3. ผสมเสียงและประกอบเข้ากับวิดีโอ
+                if audio_layers:
+                    final_audio = CompositeAudioClip(audio_layers)
+                    full_video = full_video.set_audio(final_audio)
+
+                out_file = "jigsaw_audio_final.mp4"
+                full_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", temp_audiofile='temp-audio.m4a', remove_temp=True)
                 st.session_state.final_video_path = out_file
-                status.update(label="✅ Render สำเร็จ!", state="complete")
+                status.update(label="✅ Success!", state="complete")
             except Exception as e:
-                st.error(f"❌ ระบบขัดข้อง: {str(e)}")
+                st.error(f"❌ Error: {str(e)}")
 
-# --- หมวดที่ 4: Social Hub ---
+# --- หมวดที่ 4: Social Share ---
 if st.session_state.final_video_path:
     st.divider()
     res_c1, res_c2 = st.columns([1.5, 1])
     with res_c1:
         st.video(st.session_state.final_video_path)
         with open(st.session_state.final_video_path, "rb") as f:
-            st.download_button("📥 Download Video", f, "jigsaw_render.mp4", use_container_width=True)
+            st.download_button("📥 Download Video", f, "land_video.mp4", use_container_width=True)
     with res_c2:
         st.subheader("🚀 Social Share")
-        st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/", use_container_width=True)
-        st.link_button("⚫ TikTok Upload", "https://www.tiktok.com/upload", use_container_width=True)
-        st.link_button("🔴 YouTube Shorts", "https://www.youtube.com/upload", use_container_width=True)
+        st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
+        st.link_button("⚫ TikTok Upload", "https://www.tiktok.com/upload")
+        st.link_button("🔴 YouTube Shorts", "https://www.youtube.com/upload")
