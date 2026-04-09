@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import textwrap
 
-# --- หมวดที่ 1: ระบบพื้นฐาน ---
+# --- หมวดที่ 1: ตั้งค่ามาตรฐาน ---
 st.set_page_config(page_title="Jigsaw Universal Assembler", layout="wide")
 
 def get_reading_duration(text):
@@ -39,14 +39,14 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Force Audio Sync)")
+st.title("🎬 Jigsaw Master (Audio Master Engine)")
 
-# --- หมวดที่ 2: UI Layout ---
+# --- หมวดที่ 2: ส่วนรับข้อมูล ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
     uploaded_files = st.file_uploader("Add Images/MP4", type=['jpg','png','jpeg','mp4'], accept_multiple_files=True)
-    global_bgm = st.file_uploader("Upload BGM", type=["mp3","wav","m4a","mp4"])
+    global_bgm = st.file_uploader("Upload BGM (Music)", type=["mp3","wav","m4a","mp4"])
 
 with col2:
     st.header("🖥️ Terminal")
@@ -55,7 +55,7 @@ with col2:
 
 st.divider()
 
-# --- หมวดที่ 3: Render Engine ---
+# --- หมวดที่ 3: ระบบเรนเดอร์ ---
 scene_configs = []
 if uploaded_files:
     sorted_files = sorted(uploaded_files, key=lambda x: x.name)
@@ -70,7 +70,7 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Force Audio Sync Rendering...") as status:
+        with st.status("🎬 Audio Sync Master Processing...") as status:
             try:
                 final_clips = []
                 TARGET_FPS = 24 
@@ -96,7 +96,7 @@ if uploaded_files:
                         combined = Image.alpha_composite(pil_base, pil_sub)
                         clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"]).set_fps(TARGET_FPS)
 
-                    # ✅ FIXED: Scene Audio Explicit Sync
+                    # ✅ จัดการเสียงพากย์ราย Scene
                     if config["voice"]:
                         try:
                             v_suffix = os.path.splitext(config["voice"].name)[1].lower()
@@ -106,18 +106,22 @@ if uploaded_files:
                                 if v_audio:
                                     v_audio = v_audio.volumex(voice_volume).set_duration(clip.duration)
                                     clip = clip.set_audio(v_audio)
-                        except Exception:
-                            pass # Skip if voice file is corrupted
+                        except:
+                            pass
                     
                     final_clips.append(clip)
 
+                # รวมวิดีโอหลัก
                 full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
                 
-                # ✅ FIXED: Global Audio Re-mixing with Explicit FPS/Sample Rate
-                audio_tracks = []
+                # ✅ ระบบผสมเสียง (Audio Master Mix)
+                final_audio_tracks = []
+                
+                # 1. ดึงเสียงจาก Scene ทั้งหมดมารวมกันก่อน
                 if full_video.audio:
-                    audio_tracks.append(full_video.audio)
+                    final_audio_tracks.append(full_video.audio)
 
+                # 2. ผสม BGM ลงไปในเลเยอร์ที่สอง
                 if global_bgm:
                     try:
                         bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
@@ -125,30 +129,43 @@ if uploaded_files:
                             bg_temp.write(global_bgm.getvalue())
                             bg_audio = AudioFileClip(bg_temp.name) if bg_suffix != ".mp4" else VideoFileClip(bg_temp.name).audio
                             bg_audio = bg_audio.volumex(bgm_volume).set_duration(full_video.duration)
-                            audio_tracks.append(bg_audio)
-                    except Exception:
+                            final_audio_tracks.append(bg_audio)
+                    except:
                         pass
 
-                if audio_tracks:
-                    full_video = full_video.set_audio(CompositeAudioClip(audio_tracks))
+                # 3. บังคับใส่ Track เสียงลงในวิดีโอ
+                if final_audio_tracks:
+                    full_video.audio = CompositeAudioClip(final_audio_tracks)
 
-                out_file = "jigsaw_audio_final.mp4"
-                # ✅ บังคับใช้ AAC และตั้งค่า Audio FPS (44100) เพื่อแก้ปัญหาเสียงไม่ติด
-                full_video.write_videofile(out_file, fps=TARGET_FPS, codec="libx264", audio_codec="aac", audio_fps=44100, threads=4)
+                out_file = "jigsaw_final_fixed.mp4"
+                
+                # ✅ CRITICAL FIX: บังคับพารามิเตอร์เพื่อให้เสียงติดแน่นอน
+                full_video.write_videofile(
+                    out_file, 
+                    fps=TARGET_FPS, 
+                    codec="libx264", 
+                    audio_codec="aac", 
+                    audio_bitrate="192k", 
+                    audio_fps=44100, # บังคับ Sample Rate
+                    temp_audiofile='temp-audio.m4a', 
+                    remove_temp=True,
+                    threads=4
+                )
+                
                 st.session_state.final_video_path = out_file
                 status.update(label="✅ Render Success!", state="complete")
             except Exception as e:
                 st.error(f"❌ Render Error: {str(e)}")
 
-# --- หมวดที่ 4: Social Hub ---
+# --- หมวดที่ 4: ส่วนแสดงผล ---
 if st.session_state.final_video_path:
     st.divider()
     res_c1, res_c2 = st.columns([1.5, 1])
     with res_c1:
         st.video(st.session_state.final_video_path)
         with open(st.session_state.final_video_path, "rb") as f:
-            st.download_button("📥 Download", f, "output.mp4", use_container_width=True)
+            st.download_button("📥 Download Video", f, "final_render.mp4", use_container_width=True)
     with res_c2:
-        st.subheader("🚀 Share")
+        st.subheader("🚀 Social Ready")
         st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
         st.link_button("⚫ TikTok", "https://www.tiktok.com/upload")
