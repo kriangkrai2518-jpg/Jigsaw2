@@ -26,7 +26,7 @@ def make_silence(duration, fps=44100):
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 if 'line_v_path' not in st.session_state: st.session_state.line_v_path = None
 
-st.title("🎬 Jigsaw Master (LINE Support)")
+st.title("🎬 Jigsaw Master (Syntax & LINE Support)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -41,7 +41,6 @@ with col2:
     voice_v = st.slider("Voiceover Volume", 0.0, 1.0, 0.90, 0.05)
     st.divider()
     st.markdown("### 🛠️ Export Options")
-    # เพิ่มปุ่ม Convert พิเศษ
     render_btn = st.button("🚀 Start Standard Render", use_container_width=True)
     line_btn = st.button("🟢 Convert to LINE Format (Best for Mobile)", use_container_width=True)
 
@@ -59,7 +58,6 @@ if files:
             dur = sc2.slider("Min Duration (Sec)", 1.0, 60.0, 4.0, key=f"d_{i}")
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
-    # ตรวจสอบการกดปุ่ม (ทั้งแบบปกติและแบบ LINE)
     if render_btn or line_btn:
         is_line = True if line_btn else False
         with st.status("🎬 Processing..." if not is_line else "🟢 Processing for LINE...") as status:
@@ -81,4 +79,10 @@ if files:
                             vt.write(cfg["v"].getvalue())
                             vt.flush()
                             raw_v = AudioFileClip(vt.name).volumex(voice_v)
-                            v_audio = CompositeAudioClip([raw_v, make_silence(
+                            # ✅ แก้ไขวงเล็บปิดที่หายไปในบรรทัดนี้แล้ว
+                            v_audio = CompositeAudioClip([raw_v, make_silence(1.0).set_start(raw_v.duration)])
+                            scene_dur = max(scene_dur, raw_v.duration + 0.3)
+
+                    if ext == '.mp4':
+                        base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
+                        base_v = base_v.set_duration(scene_
