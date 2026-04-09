@@ -20,7 +20,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Voice Sync)")
+st.title("🎬 Jigsaw Master (Buffer Error Fixed)")
 col1, col2 = st.columns(2)
 with col1:
     files = st.file_uploader("Assets", type=['jpg','png','mp4'], accept_multiple_files=True)
@@ -32,26 +32,26 @@ with col2:
 configs = []
 if files:
     for i, f in enumerate(sorted(files, key=lambda x: x.name)):
-        with st.expander(f"Scene {i+1}"):
+        with st.expander(f"Scene {i+1}", expanded=True):
             c1, c2 = st.columns(2)
             cap = c1.text_area("Subtitle", key=f"c_{i}", value=f"Scene {i+1}")
             voi = c2.file_uploader("Voice", type=['mp3','wav','m4a'], key=f"v_{i}")
-            dur = c2.slider("Min Duration (Sec)", 1.0, 30.0, 4.0, key=f"d_{i}")
+            dur = c2.slider("Min Duration (Sec)", 1.0, 60.0, 4.0, key=f"d_{i}")
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
-    if st.button("🚀 Render Video (Voice Priority)"):
-        with st.status("Rendering...") as status:
+    if st.button("🚀 Render Video (Final Stable)"):
+        with st.status("🎬 Processing Rendering...") as status:
             try:
-                clips = []
+                final_clips = []
                 for cfg in configs:
                     ext = os.path.splitext(cfg["f"].name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as t:
                         t.write(cfg["f"].getvalue())
                         p = t.name
                     
-                    # 1. จัดการเสียงพากย์เพื่อหา Duration ที่แท้จริง
+                    # 1. จัดการเสียงและหาความยาวฉากที่แน่นอน
                     v_audio = None
-                    final_dur = cfg["dur"]
+                    scene_dur = cfg["dur"]
                     
                     if cfg["v"]:
                         v_ext = os.path.splitext(cfg["v"].name)[1].lower()
@@ -61,33 +61,30 @@ if files:
                             os.fsync(vt.fileno())
                             v_p = vt.name
                         v_audio = AudioFileClip(v_p).volumex(voice_v)
-                        # ✅ บังคับให้ภาพยาวเท่าเสียงพากย์ (ถ้าเสียงพากย์ยาวกว่าค่าที่ตั้งไว้)
-                        final_dur = max(cfg["dur"], v_audio.duration + 0.5) # เผื่อเวลาหายใจ 0.5 วิ
+                        # ✅ บังคับให้ฉากยาวพอสำหรับเสียงพากย์ และเผื่อ Buffer 0.2 วิ
+                        scene_dur = max(scene_dur, v_audio.duration + 0.2)
 
-                    # 2. สร้าง Visual Clip ตาม Duration ที่คำนวณใหม่
+                    # 2. สร้างภาพ/วิดีโอตามความยาว scene_dur
                     if ext == '.mp4':
-                        v = VideoFileClip(p).resize(width=1280).set_fps(24).without_audio()
-                        # ถ้าวิดีโอสั้นกว่าเสียงพากย์ ให้ค้างเฟรมสุดท้ายไว้ (Loop/Freeze)
-                        if v.duration < final_dur:
-                            v = v.set_duration(final_dur)
-                        else:
-                            v = v.subclip(0, final_dur)
+                        base_v = VideoFileClip(p).resize(width=1280).set_fps(24).without_audio()
+                        # ถ้าวิดีโอสั้นกว่า ให้ค้างเฟรมสุดท้าย (Looping/Padding)
+                        base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
                     else:
                         img = Image.open(p).convert("RGB")
-                        v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(final_dur).set_fps(24)
+                        base_v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(scene_dur).set_fps(24)
                     
-                    # 3. รวม Subtitle และ Audio
-                    sub = ImageClip(create_sub(cfg["cap"], v.size)).set_duration(v.duration).set_position('center')
-                    clip = CompositeVideoClip([v, sub])
+                    # 3. ใส่ Subtitle
+                    sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
+                    clip = CompositeVideoClip([base_v, sub])
                     
+                    # 4. รวมเสียงพากย์ (ใช้ Composite เพื่อป้องกัน Buffer Error)
                     if v_audio:
-                        clip = clip.set_audio(v_audio.set_duration(final_dur))
+                        clip.audio = CompositeAudioClip([v_audio.set_start(0)])
                     
-                    clips.append(clip)
+                    final_clips.append(clip)
 
-                # 4. Mix กับ BGM
-                full = concatenate_videoclips(clips, method="compose").set_fps(24)
-                tracks = [full.audio] if full.audio else []
+                # 5. รวมฉากทั้งหมดและใส่ BGM
+                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(24)
                 
                 if bgm_f:
                     b_ext = os.path.splitext(bgm_f.name)[1].lower()
@@ -95,18 +92,20 @@ if files:
                         bt.write(bgm_f.getvalue())
                         bt.flush()
                         os.fsync(bt.fileno())
-                        b_p = bt.name
-                    tracks.append(AudioFileClip(b_p).volumex(bgm_v).set_duration(full.duration))
-                
-                if tracks: full.audio = CompositeAudioClip(tracks)
-                
-                out = "voice_priority_final.mp4"
-                full.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, remove_temp=True)
+                        bg_audio = AudioFileClip(bt.name).volumex(bgm_v).set_duration(full_video.duration)
+                        # ผสม BGM เข้ากับเสียงพากย์เดิม
+                        current_audio = [full_video.audio] if full_video.audio else []
+                        current_audio.append(bg_audio)
+                        full_video.audio = CompositeAudioClip(current_audio)
+
+                out = "final_stable.mp4"
+                full_video.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, remove_temp=True)
                 st.session_state.v_path = out
                 status.update(label="✅ Render Success!", state="complete")
             except Exception as e: st.error(f"Render Error: {e}")
 
 if st.session_state.v_path:
+    st.divider()
     st.video(st.session_state.v_path)
     with open(st.session_state.v_path, "rb") as f:
-        st.download_button("📥 Download Video", f, "final_video.mp4")
+        st.download_button("📥 Download Video", f, "final_video.mp4", use_container_width=True)
