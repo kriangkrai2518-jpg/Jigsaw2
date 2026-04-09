@@ -21,7 +21,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Syntax Fixed)")
+st.title("🎬 Jigsaw Master (Zero-Gap Fix)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -55,7 +55,7 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Processing Rendering...") as status:
+        with st.status("🎬 Final Sync Processing...") as status:
             try:
                 final_clips = []
                 FPS = 24
@@ -79,13 +79,9 @@ if files:
 
                     if ext == '.mp4':
                         base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
-                        if base_v.duration < scene_dur:
-                            base_v = base_v.set_duration(scene_dur)
-                        else:
-                            base_v = base_v.subclip(0, scene_dur)
+                        base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
                     else:
                         img = Image.open(p).convert("RGB")
-                        # ✅ แก้ไขวงเล็บที่ขาดหายไปในบรรทัดนี้
                         new_h = int(1280 * img.height / img.width)
                         base_v = ImageClip(np.array(img.resize((1280, new_h)))).set_duration(scene_dur).set_fps(FPS)
                     
@@ -103,14 +99,20 @@ if files:
                         bt.write(bgm_f.getvalue())
                         bt.flush()
                         os.fsync(bt.fileno())
+                        
+                        # ✅ แก้ไขจุดตาย: Force Infinite Buffer (+10 วินาที)
                         bg_audio_raw = AudioFileClip(bt.name)
-                        bg_audio = bg_audio_raw.fx(vfx.loop, duration=full_video.duration + 2.0).set_duration(full_video.duration).volumex(bgm_v)
+                        # สร้าง Loop ให้ยาวกว่าวิดีโอจริงไปเลย เพื่อให้วินาทีสุดท้ายมีข้อมูลเสมอ
+                        bg_audio_buffer = bg_audio_raw.fx(vfx.loop, duration=full_video.duration + 10.0)
+                        # ตัด (Trim) ให้เท่ากับวิดีโอเป๊ะๆ ในขั้นตอนสุดท้าย
+                        bg_audio = bg_audio_buffer.set_duration(full_video.duration).volumex(bgm_v)
+                        
                         current_audio = [full_video.audio] if full_video.audio else []
                         current_audio.append(bg_audio)
                         full_video.audio = CompositeAudioClip(current_audio)
 
-                out = "final_output_fixed.mp4"
-                full_video.write_videofile(out, fps=FPS, codec="libx264", audio_codec="aac")
+                out = "final_output_stable.mp4"
+                full_video.write_videofile(out, fps=FPS, codec="libx264", audio_codec="aac", audio_fps=44100)
                 st.session_state.v_path = out
                 status.update(label="✅ Success!", state="complete")
             except Exception as e:
