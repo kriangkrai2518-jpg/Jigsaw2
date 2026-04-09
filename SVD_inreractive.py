@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import textwrap
 
-# --- หมวดที่ 1: มาตรฐานระบบ (Locked 🔒) ---
+# --- หมวดที่ 1: ระบบมาตรฐาน (Locked 🔒) ---
 st.set_page_config(page_title="Jigsaw Universal Assembler", layout="wide")
 
 def get_reading_duration(text):
@@ -39,7 +39,7 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Stable Audio & Syntax Fix)")
+st.title("🎬 Jigsaw Master (Ultra Stable Engine)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -74,9 +74,23 @@ if uploaded_files:
             scene_configs.append({"file": file, "cap": cap, "dur": dur, "voice": v_file})
 
     if st.button("🚀 Start Render Final Video"):
-        with st.status("🎬 Processing with Syntax & FPS Fix...") as status:
+        with st.status("🎬 Processing Rendering...") as status:
             try:
                 final_clips = []
                 TARGET_FPS = 24 
 
+                # บล็อกคำสั่ง FOR ที่แก้ไข Indentation แล้ว
                 for i, config in enumerate(scene_configs):
+                    suffix = os.path.splitext(config["file"].name)[1].lower()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as t:
+                        t.write(config["file"].getvalue())
+                        temp_path = t.name
+
+                    # 1. Visual Clip
+                    if suffix == '.mp4':
+                        base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).set_fps(TARGET_FPS)
+                        sub_img = create_subtitle_overlay(config["cap"], base_v.size)
+                        sub_clip = ImageClip(sub_img).set_duration(base_v.duration).set_position(('center', 'center')).set_fps(TARGET_FPS)
+                        clip = CompositeVideoClip([base_v, sub_clip])
+                    else:
+                        img = Image.
