@@ -39,7 +39,7 @@ def create_subtitle_overlay(text, size):
 if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = None
 
-st.title("🎬 Jigsaw Master (Ultra Stable Engine)")
+st.title("🎬 Jigsaw Master (Syntax Fixed)")
 
 # --- หมวดที่ 2: UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -79,18 +79,41 @@ if uploaded_files:
                 final_clips = []
                 TARGET_FPS = 24 
 
-                # บล็อกคำสั่ง FOR ที่แก้ไข Indentation แล้ว
                 for i, config in enumerate(scene_configs):
                     suffix = os.path.splitext(config["file"].name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as t:
                         t.write(config["file"].getvalue())
                         temp_path = t.name
 
-                    # 1. Visual Clip
+                    # 1. Visual Clip Processing
                     if suffix == '.mp4':
                         base_v = VideoFileClip(temp_path).subclip(0, config["dur"]).resize(width=1280).set_fps(TARGET_FPS)
                         sub_img = create_subtitle_overlay(config["cap"], base_v.size)
                         sub_clip = ImageClip(sub_img).set_duration(base_v.duration).set_position(('center', 'center')).set_fps(TARGET_FPS)
                         clip = CompositeVideoClip([base_v, sub_clip])
                     else:
-                        img = Image.
+                        img = Image.open(temp_path).convert("RGB")
+                        img_array = np.array(img.resize((1280, int(1280 * img.height / img.width))))
+                        sub_img = create_subtitle_overlay(config["cap"], (img_array.shape[1], img_array.shape[0]))
+                        pil_base = Image.fromarray(img_array).convert("RGBA")
+                        pil_sub = Image.fromarray(sub_img, "RGBA")
+                        combined = Image.alpha_composite(pil_base, pil_sub)
+                        clip = ImageClip(np.array(combined.convert("RGB"))).set_duration(config["dur"]).set_fps(TARGET_FPS)
+
+                    # 2. Voiceover Mixing
+                    if config["voice"]:
+                        v_suffix = os.path.splitext(config["voice"].name)[1].lower()
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=v_suffix) as v_temp:
+                            v_temp.write(config["voice"].getvalue())
+                            v_audio = AudioFileClip(v_temp.name) if v_suffix != ".mp4" else VideoFileClip(v_temp.name).audio
+                            if v_audio:
+                                v_audio = v_audio.volumex(voice_volume).set_duration(clip.duration)
+                                clip = clip.set_audio(v_audio)
+                    
+                    final_clips.append(clip)
+
+                # 3. Concatenate and BGM Mix
+                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(TARGET_FPS)
+                
+                if global_bgm:
+                    bg_suffix = os.path.splitext(global_bgm.name)[1].lower()
