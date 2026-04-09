@@ -1,6 +1,5 @@
 import streamlit as st
 from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip, vfx 
-from moviepy.audio.fx.all import audio_loop # นำเข้าเฉพาะสำหรับ Audio Loop
 import tempfile, os, textwrap, numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -22,7 +21,7 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Audio Padding Edition)")
+st.title("🎬 Jigsaw Master (Infinity Loop Fix)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -38,10 +37,8 @@ with col2:
     
     st.markdown("### 🛡️ Safe Music Hub")
     m_col1, m_col2 = st.columns(2)
-    with m_col1: 
-        st.link_button("🎵 FB Sound Collection", "https://www.facebook.com/sound/collection/")
-    with m_col2: 
-        st.link_button("📺 YT Audio Library", "https://www.youtube.com/audiolibrary")
+    with m_col1: st.link_button("🎵 FB Sound Collection", "https://www.facebook.com/sound/collection/")
+    with m_col2: st.link_button("📺 YT Audio Library", "https://www.youtube.com/audiolibrary")
 
 st.divider()
 
@@ -58,9 +55,10 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Ensuring Zero-Gap Sync...") as status:
+        with st.status("🎬 Processing Infinity Sync...") as status:
             try:
                 final_clips = []
+                FPS = 24
                 for cfg in configs:
                     ext = os.path.splitext(cfg["f"].name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as t:
@@ -80,20 +78,20 @@ if files:
                         scene_dur = max(scene_dur, v_audio.duration + 0.3)
 
                     if ext == '.mp4':
-                        base_v = VideoFileClip(p).resize(width=1280).set_fps(24).without_audio()
+                        base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
                         base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
                     else:
                         img = Image.open(p).convert("RGB")
-                        base_v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(scene_dur).set_fps(24)
+                        base_v = ImageClip(np.array(img.resize((1280, int(1280*img.height/img.width))))).set_duration(scene_dur).set_fps(FPS)
                     
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     clip = CompositeVideoClip([base_v, sub])
                     if v_audio: 
-                        # ล็อคความยาวเสียงพากย์รายฉาก ไม่ให้ไหลเกิน scene_dur
+                        # บังคับ Audio ให้จบตามภาพเป๊ะๆ
                         clip.audio = CompositeAudioClip([v_audio.set_start(0).set_duration(scene_dur)])
                     final_clips.append(clip)
 
-                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(24)
+                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(FPS)
                 
                 if bgm_f:
                     b_ext = os.path.splitext(bgm_f.name)[1].lower()
@@ -102,34 +100,6 @@ if files:
                         bt.flush()
                         os.fsync(bt.fileno())
                         
-                        # ✅ วิธีแก้ขั้นเด็ดขาด: 
-                        # 1. โหลด Audio แบบ Loop ไว้ก่อน
-                        # 2. ใช้ audio_loop เพื่อขยายความยาวให้เกินความยาววิดีโอ (Padding)
-                        # 3. ตัด (set_duration) ให้เท่ากับวิดีโอพอดี
-                        raw_bgm = AudioFileClip(bt.name)
-                        bg_audio = audio_loop(raw_bgm, duration=full_video.duration + 1.0) # เผื่อไว้ 1 วินาที
-                        bg_audio = bg_audio.set_duration(full_video.duration).volumex(bgm_v)
-                        
-                        current_audio = [full_video.audio] if full_video.audio else []
-                        current_audio.append(bg_audio)
-                        full_video.audio = CompositeAudioClip(current_audio)
-
-                out = "final_no_error.mp4"
-                # ✅ ใส่ค่า audio_fps และเลือก write โดยระบุ fps ชัดเจน
-                full_video.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100)
-                st.session_state.v_path = out
-                status.update(label="✅ Success!", state="complete")
-            except Exception as e: st.error(f"Error: {e}")
-
-# --- 4. แสดงผล ---
-if st.session_state.v_path:
-    st.divider()
-    res1, res2 = st.columns([1.5, 1])
-    with res1:
-        st.video(st.session_state.v_path)
-        with open(st.session_state.v_path, "rb") as f:
-            st.download_button("📥 Download Video", f, "final_jigsaw.mp4", use_container_width=True)
-    with res2:
-        st.subheader("🚀 Social Share")
-        st.link_button("🔵 Facebook Reels", "https://www.facebook.com/reels/create/")
-        st.link_button("⚫ TikTok", "https://www.tiktok.com/upload")
+                        # ✅ วิธีแก้ขั้นเด็ดขาด (Infinity Over-provisioning)
+                        bg_audio_raw = AudioFileClip(bt.name)
+                        #
