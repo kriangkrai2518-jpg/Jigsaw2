@@ -12,7 +12,6 @@ def create_sub(text, size):
     d = ImageDraw.Draw(ov)
     if text:
         try:
-            # พยายามโหลดฟอนต์ไทย ถ้าไม่มีจะใช้ default
             f = ImageFont.truetype("Kanit-Bold.ttf", int(h*0.04))
         except:
             f = ImageFont.load_default()
@@ -25,7 +24,7 @@ def create_sub(text, size):
 if 'v_path' not in st.session_state: 
     st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Stable Sync Build)")
+st.title("🎬 Jigsaw Master (Absolute Stability)")
 
 # --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
@@ -61,7 +60,7 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if st.button("🚀 Start Final Render"):
-        with st.status("🎬 Rendering Stable Output...") as status:
+        with st.status("🎬 Perfect Sync Rendering...") as status:
             try:
                 final_clips = []
                 FPS = 24
@@ -81,8 +80,9 @@ if files:
                             vt.write(cfg["v"].getvalue())
                             vt.flush()
                             os.fsync(vt.fileno())
+                            # โหลดเสียงพากย์และเผื่อเวลาให้ฉากยาวกว่าเสียงเล็กน้อย
                             v_audio = AudioFileClip(vt.name).volumex(voice_v)
-                        scene_dur = max(scene_dur, v_audio.duration + 0.3)
+                            scene_dur = max(scene_dur, v_audio.duration + 0.3)
 
                     if ext == '.mp4':
                         base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
@@ -99,6 +99,7 @@ if files:
                     clip = CompositeVideoClip([base_v, sub])
                     
                     if v_audio: 
+                        # บังคับให้ Audio รายฉากจบตาม scene_dur
                         clip.audio = CompositeAudioClip([v_audio.set_start(0).set_duration(scene_dur)])
                     
                     final_clips.append(clip)
@@ -113,17 +114,22 @@ if files:
                         os.fsync(bt.fileno())
                         
                         bg_audio_raw = AudioFileClip(bt.name)
-                        # Loop เผื่อไว้ 5 วินาทีเพื่อแก้ปัญหา Floating Point Error ที่ทำให้เรนเดอร์ไม่ผ่าน
+                        # ✅ หัวใจสำคัญ: Loop ให้ยาวกว่าวิดีโอ 5 วินาที เพื่อสร้าง Buffer
                         bg_audio = bg_audio_raw.fx(vfx.loop, duration=full_video.duration + 5.0).volumex(bgm_v)
                         
-                        current_audio = [full_video.audio] if full_video.audio else []
-                        current_audio.append(bg_audio)
-                        full_video.audio = CompositeAudioClip(current_audio).set_duration(full_video.duration)
+                        # รวมเสียงทั้งหมด
+                        audio_list = []
+                        if full_video.audio: audio_list.append(full_video.audio)
+                        audio_list.append(bg_audio)
+                        
+                        # ✅ บังคับล็อคความยาว Audio รวม ให้เท่ากับวิดีโอเป๊ะๆ
+                        full_video.audio = CompositeAudioClip(audio_list).set_duration(full_video.duration)
 
-                out = "final_jigsaw_stable.mp4"
+                out = "stable_output.mp4"
+                # ✅ ระบุ fps และ audio_fps เพื่อความแม่นยำสูงสุด
                 full_video.write_videofile(out, fps=FPS, codec="libx264", audio_codec="aac", audio_fps=44100)
                 st.session_state.v_path = out
-                status.update(label="✅ Success!", state="complete")
+                status.update(label="✅ Render Complete!", state="complete")
                 
             except Exception as e:
                 st.error(f"Render Error: {e}")
