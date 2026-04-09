@@ -21,27 +21,25 @@ def create_sub(text, size):
 
 if 'v_path' not in st.session_state: st.session_state.v_path = None
 
-st.title("🎬 Jigsaw Master (Safe Music Hub Restored)")
+st.title("🎬 Jigsaw Master (MP4 BGM Supported)")
 
-# --- 2. UI Layout (Restored Buttons) ---
+# --- 2. UI Layout ---
 col1, col2 = st.columns([1, 1])
 with col1:
     st.header("📂 Assets")
     files = st.file_uploader("Add Images/MP4", type=['jpg','png','jpeg','mp4'], accept_multiple_files=True)
-    bgm_f = st.file_uploader("🎵 Global BGM (Background Music)", type=["mp3","wav","m4a"])
+    # ✅ ปรับให้รองรับ mp4 ในช่อง BGM
+    bgm_f = st.file_uploader("🎵 Global BGM (MP3/MP4 Audio)", type=["mp3","wav","m4a","mp4"])
 
 with col2:
     st.header("🖥️ Terminal & Music Hub")
     bgm_v = st.slider("BGM Volume", 0.0, 1.0, 0.15, 0.05)
     voice_v = st.slider("Voiceover Volume", 0.0, 1.0, 0.90, 0.05)
     
-    # ✅ ส่วนของปุ่มเพลงฟรีที่หายไป กลับมาแล้วครับ
     st.markdown("### 🛡️ Safe Music Hub")
     m_col1, m_col2 = st.columns(2)
-    with m_col1: 
-        st.link_button("🎵 FB Sound Collection", "https://www.facebook.com/sound/collection/")
-    with m_col2: 
-        st.link_button("📺 YT Audio Library", "https://www.youtube.com/audiolibrary")
+    with m_col1: st.link_button("🎵 FB Sound Collection", "https://www.facebook.com/sound/collection/")
+    with m_col2: st.link_button("📺 YT Audio Library", "https://www.youtube.com/audiolibrary")
 
 st.divider()
 
@@ -53,7 +51,7 @@ if files:
         with st.expander(f"🎤 Scene {i+1}: {f.name}", expanded=True):
             sc1, sc2 = st.columns([2, 1])
             cap = sc1.text_area("Subtitle:", key=f"c_{i}", value=f"Scene {i+1}")
-            voi = sc2.file_uploader("Voiceover", type=['mp3','wav','m4a'], key=f"v_{i}")
+            voi = sc2.file_uploader("Voiceover", type=['mp3','wav','m4a','mp4'], key=f"v_{i}")
             dur = sc2.slider("Min Duration (Sec)", 1.0, 60.0, 4.0, key=f"d_{i}")
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
@@ -70,13 +68,18 @@ if files:
                     v_audio = None
                     scene_dur = cfg["dur"]
                     
+                    # ✅ ปรับปรุงการสกัดเสียงพากย์ (Voiceover) จาก MP4
                     if cfg["v"]:
                         v_ext = os.path.splitext(cfg["v"].name)[1].lower()
                         with tempfile.NamedTemporaryFile(delete=False, suffix=v_ext) as vt:
                             vt.write(cfg["v"].getvalue())
                             vt.flush()
                             os.fsync(vt.fileno())
-                            v_audio = AudioFileClip(vt.name).volumex(voice_v)
+                            # ถ้าเป็น mp4 ให้ใช้ .audio จาก VideoFileClip
+                            if v_ext == ".mp4":
+                                v_audio = VideoFileClip(vt.name).audio.volumex(voice_v)
+                            else:
+                                v_audio = AudioFileClip(vt.name).volumex(voice_v)
                         scene_dur = max(scene_dur, v_audio.duration + 0.2)
 
                     if ext == '.mp4':
@@ -93,18 +96,24 @@ if files:
 
                 full_video = concatenate_videoclips(final_clips, method="compose").set_fps(24)
                 
+                # ✅ ปรับปรุงการสกัดเสียง BGM จาก MP4
                 if bgm_f:
                     b_ext = os.path.splitext(bgm_f.name)[1].lower()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=b_ext) as bt:
                         bt.write(bgm_f.getvalue())
                         bt.flush()
                         os.fsync(bt.fileno())
-                        bg_audio = AudioFileClip(bt.name).volumex(bgm_v).set_duration(full_video.duration)
+                        # ถ้า BGM เป็น mp4 ให้สกัดเสียงออกมา
+                        if b_ext == ".mp4":
+                            bg_audio = VideoFileClip(bt.name).audio.volumex(bgm_v).set_duration(full_video.duration)
+                        else:
+                            bg_audio = AudioFileClip(bt.name).volumex(bgm_v).set_duration(full_video.duration)
+                        
                         current_audio = [full_video.audio] if full_video.audio else []
                         current_audio.append(bg_audio)
                         full_video.audio = CompositeAudioClip(current_audio)
 
-                out = "final_output.mp4"
+                out = "final_universal_audio.mp4"
                 full_video.write_videofile(out, fps=24, codec="libx264", audio_codec="aac", audio_fps=44100, remove_temp=True)
                 st.session_state.v_path = out
                 status.update(label="✅ Success!", state="complete")
