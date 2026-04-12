@@ -125,7 +125,7 @@ if files:
                     else:
                         img = Image.open(p).convert("RGB")
                         new_h = int(1280 * img.height / img.width)
-                        base_v = ImageClip(np.array(img.resize((1280, new_h), Image.LANCZOS))).set_duration(scene_dur).set_fps(FPS)
+                        base_v = ImageClip(np.array(img.resize((1280, new_h), Image.Resampling.LANCZOS))).set_duration(scene_dur).set_fps(FPS)
                     
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     wm = ImageClip(create_watermark(wm_text, base_v.size)).set_duration(scene_dur).set_position('center')
