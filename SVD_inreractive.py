@@ -1,6 +1,8 @@
 import PIL.Image
+# ✅ ดักจับ Error ANTIALIAS สำหรับ Pillow เวอร์ชันใหม่
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+
 import streamlit as st
 from moviepy.editor import ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip, vfx
 from moviepy.audio.AudioClip import AudioArrayClip
@@ -38,20 +40,17 @@ def create_watermark(text, size):
         d.text((w-200, 40), text, font=f, fill=(255,255,255,100))
     return np.array(ov)
 
-# ✅ ฟังก์ชันสร้างแบนเนอร์พร้อมตัวหนังสือสีแดง
 def create_contact_banner(phone, message, size):
     w, h = size
     b_h = int(h * 0.08)
     ov = Image.new('RGBA', (w, h), (0,0,0,0))
     d = ImageDraw.Draw(ov)
     if phone or message:
-        # แถบแบนเนอร์สีดำโปร่งใส
         d.rectangle((0, 0, w, b_h), fill=(0,0,0,180))
         try: f = ImageFont.truetype("Kanit-Bold.ttf", int(h*0.03))
         except: f = ImageFont.load_default()
         full_text = f"{phone} {message}"
-        
-        # ✅ เปลี่ยนสีตัวหนังสือเป็นสีแดง Pure Red (RGBA: 255, 0, 0, 255)
+        # ✅ ตัวหนังสือสีแดง Pure Red ตามแบรนด์
         d.text((40, 10), full_text, font=f, fill=(255,0,0,255))
     return np.array(ov)
 
@@ -67,24 +66,17 @@ with col1:
 
 with col2:
     st.header("⚙️ Branding & Export")
-    # ใช้สถานะจำค่า (session_state) เพื่อไม่ให้ข้อมูลหาย
     wm_text = st.text_input("Watermark Text (Top):", value=st.session_state.wm_text, key="wm_input")
     phone_num = st.text_input("Contact Name/Brand:", value=st.session_state.phone_num, key="phone_input")
     contact_msg = st.text_input("Contact Details (Phone/Line):", value=st.session_state.contact_msg, key="msg_input")
     
-    # อัปเดตค่าเข้า Memory
-    st.session_state.wm_text = wm_text
-    st.session_state.phone_num = phone_num
-    st.session_state.contact_msg = contact_msg
+    st.session_state.wm_text, st.session_state.phone_num, st.session_state.contact_msg = wm_text, phone_num, contact_msg
     
     bgm_v = st.slider("BGM Volume", 0.0, 1.0, 0.10, 0.05)
     voice_v = st.slider("Voice Balance", 0.0, 1.0, 0.90, 0.05)
     st.divider()
     render_btn = st.button("🚀 Start Rendering", use_container_width=True)
-    # เพิ่มคำเตือนเกี่ยวกับปุ่ม LINE
-    line_btn = st.button("🟢 Convert to LINE Format (Recommended)", use_container_width=True)
-
-st.divider()
+    line_btn = st.button("🟢 Convert to LINE Format", use_container_width=True)
 
 # --- 3. Render Engine ---
 configs = []
@@ -99,8 +91,8 @@ if files:
             configs.append({"f":f, "cap":cap, "dur":dur, "v":voi})
 
     if render_btn or line_btn:
-        is_line = True if line_btn else False
-        with st.status("🎬 Processing with Red Branding..." if not is_line else "🟢 LINE Compatible Format...") as status:
+        is_line = bool(line_btn)
+        with st.status("🎬 Rendering..." if not is_line else "🟢 LINE Processing...") as status:
             try:
                 final_clips = []
                 FPS = 24
@@ -119,8 +111,9 @@ if files:
                             vt.write(cfg["v"].getvalue())
                             vt.flush()
                             raw_v = AudioFileClip(vt.name).volumex(voice_v)
-                            v_audio = CompositeAudioClip([raw_v, make_silence(1.0).set_start(raw_v.duration)])
-                            scene_dur = max(scene_dur, raw_v.duration + 0.3)
+                            # ✅ ล็อคความยาวเสียงและเติมความเงียบสั้นๆ ท้าย Scene
+                            v_audio = CompositeAudioClip([raw_v, make_silence(0.5).set_start(raw_v.duration)])
+                            scene_dur = max(scene_dur, v_audio.duration)
 
                     if ext == '.mp4':
                         base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
@@ -128,51 +121,46 @@ if files:
                     else:
                         img = Image.open(p).convert("RGB")
                         new_h = int(1280 * img.height / img.width)
+                        # ✅ ใช้ Image.Resampling.LANCZOS เพื่อความคมชัดสูงสุด
                         base_v = ImageClip(np.array(img.resize((1280, new_h), Image.Resampling.LANCZOS))).set_duration(scene_dur).set_fps(FPS)
                     
+                    # เลเยอร์ตกแต่ง
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     wm = ImageClip(create_watermark(wm_text, base_v.size)).set_duration(scene_dur).set_position('center')
-                    # แบนเนอร์พร้อมตัวหนังสือสีแดง
                     banner = ImageClip(create_contact_banner(phone_num, contact_msg, base_v.size)).set_duration(scene_dur).set_position('center')
                     
-                    clip = CompositeVideoClip([base_v, sub, wm, banner])
-                    if v_audio: clip.audio = v_audio.set_duration(scene_dur)
-                    final_clips.append(clip)
+                    # ✅ ประกอบร่างและล็อคเสียงราย Scene (Audio Lock)
+                    scene_clip = CompositeVideoClip([base_v, sub, wm, banner], size=base_v.size).set_duration(scene_dur)
+                    scene_clip.audio = v_audio if v_audio else make_silence(scene_dur)
+                    final_clips.append(scene_clip)
 
-                full_video = concatenate_videoclips(final_clips, method="compose").set_fps(FPS)
+                # รวมทุก Scene
+                full_video = concatenate_videoclips(final_clips, method="compose")
                 
+                # ✅ ระบบผสม Global BGM
                 if bgm_f:
-                    b_ext = os.path.splitext(bgm_f.name)[1].lower()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=b_ext) as bt:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as bt:
                         bt.write(bgm_f.getvalue())
-                        bt.flush()
                         bg_raw = AudioFileClip(bt.name)
-                        bg_looped = bg_raw.fx(vfx.loop, duration=full_video.duration + 2.0)
-                        bg_final = CompositeAudioClip([bg_looped, make_silence(2.0).set_start(bg_looped.duration)]).volumex(bgm_v)
-                        audio_tracks = [full_video.audio] if full_video.audio else []
-                        audio_tracks.append(bg_final)
-                        full_video.audio = CompositeAudioClip(audio_tracks).set_duration(full_video.duration)
+                        bg_final = bg_raw.fx(vfx.loop, duration=full_video.duration).volumex(bgm_v)
+                        full_video.audio = CompositeAudioClip([full_video.audio, bg_final]).set_duration(full_video.duration)
 
                 out_name = "line_optimized.mp4" if is_line else "standard_output.mp4"
+                temp_audio = "render_temp_audio.m4a" # ล็อคชื่อไฟล์เสียงชั่วคราว
+                
                 export_params = {
                     "filename": out_name, "fps": FPS, "codec": "libx264", 
-                    "audio_codec": "aac", "audio_fps": 44100, "remove_temp": True
+                    "audio_codec": "aac", "audio_fps": 44100, "remove_temp": True,
+                    "temp_audiofile": temp_audio
                 }
-                if is_line:
-                    export_params["ffmpeg_params"] = ["-pix_fmt", "yuv420p", "-profile:v", "main", "-level", "3.1"]
+                if is_line: export_params["ffmpeg_params"] = ["-pix_fmt", "yuv420p", "-profile:v", "main", "-level", "3.1"]
 
                 full_video.write_videofile(**export_params)
                 status.update(label="✅ Success!", state="complete")
                 
-                # แสดงวิดีโอผลลัพธ์
-                with st.container():
-                    st.divider()
-                    st.subheader("🖥️ Result Preview")
-                    if is_line:
-                        st.success("🟢 LINE Format Ready - ส่งเข้า LINE ได้ทันที")
-                    st.video(out_name)
-                    with open(out_name, "rb") as f:
-                        st.download_button("📥 Download Final Video", f, out_name, use_container_width=True)
+                st.video(out_name)
+                with open(out_name, "rb") as f:
+                    st.download_button("📥 Download Video", f, out_name, use_container_width=True)
 
             except Exception as e:
                 st.error(f"Render Error: {e}")
