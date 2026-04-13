@@ -1,5 +1,5 @@
 import PIL.Image
-# ✅ ดักจับ Error ANTIALIAS สำหรับ Pillow เวอร์ชันใหม่
+# ✅ แก้ปัญหา ANTIALIAS ใน Pillow รุ่นใหม่ (Python 3.14)
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
@@ -50,11 +50,11 @@ def create_contact_banner(phone, message, size):
         try: f = ImageFont.truetype("Kanit-Bold.ttf", int(h*0.03))
         except: f = ImageFont.load_default()
         full_text = f"{phone} {message}"
-        # ✅ ตัวหนังสือสีแดง Pure Red ตามแบรนด์
-        d.text((40, 10), full_text, font=f, fill=(255,0,0,255))
+        d.text((40, 10), full_text, font=f, fill=(255,0,0,255)) # ✅ ตัวหนังสือสีแดงตามแบรนด์
     return np.array(ov)
 
 def make_silence(duration, fps=44100):
+    # สร้าง Audio Array ที่เป็น 0 (ความเงียบ) ป้องกันระบบ Merge พัง
     return AudioArrayClip(np.zeros((int(fps*duration), 2)), fps=fps)
 
 # --- 2. UI Layout ---
@@ -66,9 +66,9 @@ with col1:
 
 with col2:
     st.header("⚙️ Branding & Export")
-    wm_text = st.text_input("Watermark Text (Top):", value=st.session_state.wm_text, key="wm_input")
-    phone_num = st.text_input("Contact Name/Brand:", value=st.session_state.phone_num, key="phone_input")
-    contact_msg = st.text_input("Contact Details (Phone/Line):", value=st.session_state.contact_msg, key="msg_input")
+    wm_text = st.text_input("Watermark Text:", value=st.session_state.wm_text, key="wm_input")
+    phone_num = st.text_input("Contact Name:", value=st.session_state.phone_num, key="phone_input")
+    contact_msg = st.text_input("Contact Details:", value=st.session_state.contact_msg, key="msg_input")
     
     st.session_state.wm_text, st.session_state.phone_num, st.session_state.contact_msg = wm_text, phone_num, contact_msg
     
@@ -105,62 +105,74 @@ if files:
                     v_audio = None
                     scene_dur = cfg["dur"]
                     
+                    # ✅ จัดการไฟล์เสียง Voice
                     if cfg["v"]:
                         v_ext = os.path.splitext(cfg["v"].name)[1].lower()
                         with tempfile.NamedTemporaryFile(delete=False, suffix=v_ext) as vt:
                             vt.write(cfg["v"].getvalue())
                             vt.flush()
                             raw_v = AudioFileClip(vt.name).volumex(voice_v)
-                            # ✅ ล็อคความยาวเสียงและเติมความเงียบสั้นๆ ท้าย Scene
+                            # เติมความเงียบท้ายคลิปนิดหน่อยกันเสียงโดนตัด
                             v_audio = CompositeAudioClip([raw_v, make_silence(0.5).set_start(raw_v.duration)])
                             scene_dur = max(scene_dur, v_audio.duration)
 
+                    # ✅ จัดการไฟล์วิดีโอ/ภาพ
                     if ext == '.mp4':
                         base_v = VideoFileClip(p).resize(width=1280).set_fps(FPS).without_audio()
                         base_v = base_v.set_duration(scene_dur) if base_v.duration < scene_dur else base_v.subclip(0, scene_dur)
                     else:
                         img = Image.open(p).convert("RGB")
                         new_h = int(1280 * img.height / img.width)
-                        # ✅ ใช้ Image.Resampling.LANCZOS เพื่อความคมชัดสูงสุด
                         base_v = ImageClip(np.array(img.resize((1280, new_h), Image.Resampling.LANCZOS))).set_duration(scene_dur).set_fps(FPS)
                     
-                    # เลเยอร์ตกแต่ง
+                    # ✅ ใส่ Branding Layers
                     sub = ImageClip(create_sub(cfg["cap"], base_v.size)).set_duration(scene_dur).set_position('center')
                     wm = ImageClip(create_watermark(wm_text, base_v.size)).set_duration(scene_dur).set_position('center')
                     banner = ImageClip(create_contact_banner(phone_num, contact_msg, base_v.size)).set_duration(scene_dur).set_position('center')
                     
-                    # ✅ ประกอบร่างและล็อคเสียงราย Scene (Audio Lock)
+                    # ✅ ล็อค Audio และ Video เข้าด้วยกัน (Audio Lock System)
                     scene_clip = CompositeVideoClip([base_v, sub, wm, banner], size=base_v.size).set_duration(scene_dur)
-                    scene_clip.audio = v_audio if v_audio else make_silence(scene_dur)
+                    scene_clip = scene_clip.set_audio(v_audio if v_audio else make_silence(scene_dur))
                     final_clips.append(scene_clip)
 
-                # รวมทุก Scene
+                # --- Final Mix ---
                 full_video = concatenate_videoclips(final_clips, method="compose")
                 
-                # ✅ ระบบผสม Global BGM
+                # ✅ ระบบผสม Global BGM (ถ้ามี)
                 if bgm_f:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as bt:
                         bt.write(bgm_f.getvalue())
                         bg_raw = AudioFileClip(bt.name)
                         bg_final = bg_raw.fx(vfx.loop, duration=full_video.duration).volumex(bgm_v)
+                        # ผสมเสียง Voice ที่ติดมากับ Clip เข้ากับเพลง BGM
                         full_video.audio = CompositeAudioClip([full_video.audio, bg_final]).set_duration(full_video.duration)
 
+                # ✅ Export Parameters (เน้นเสถียรสำหรับ Cloud)
                 out_name = "line_optimized.mp4" if is_line else "standard_output.mp4"
-                temp_audio = "render_temp_audio.m4a" # ล็อคชื่อไฟล์เสียงชั่วคราว
+                temp_audio_file = "temp_render_voice.m4a" # ล็อคชื่อไฟล์เสียงกันหาย
                 
                 export_params = {
-                    "filename": out_name, "fps": FPS, "codec": "libx264", 
-                    "audio_codec": "aac", "audio_fps": 44100, "remove_temp": True,
-                    "temp_audiofile": temp_audio
+                    "filename": out_name,
+                    "fps": FPS,
+                    "codec": "libx264",
+                    "audio_codec": "aac",
+                    "audio_fps": 44100,
+                    "remove_temp": True,
+                    "temp_audiofile": temp_audio_file,
+                    "threads": 2,          # จำกัด Thread กัน CPU ค้าง
+                    "preset": "ultrafast", # เร่งสปีดการเขียนไฟล์
+                    "logger": None         # ปิด Logger เพื่อลดการใช้ Memory
                 }
-                if is_line: export_params["ffmpeg_params"] = ["-pix_fmt", "yuv420p", "-profile:v", "main", "-level", "3.1"]
+                
+                if is_line:
+                    export_params["ffmpeg_params"] = ["-pix_fmt", "yuv420p", "-profile:v", "main", "-level", "3.1"]
 
                 full_video.write_videofile(**export_params)
-                status.update(label="✅ Success!", state="complete")
+                status.update(label="✅ Render Success!", state="complete")
                 
                 st.video(out_name)
                 with open(out_name, "rb") as f:
-                    st.download_button("📥 Download Video", f, out_name, use_container_width=True)
+                    st.download_button("📥 Download Jigsaw Master Video", f, out_name, use_container_width=True)
 
             except Exception as e:
                 st.error(f"Render Error: {e}")
